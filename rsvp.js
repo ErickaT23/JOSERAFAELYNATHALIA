@@ -16,6 +16,24 @@ function keyFor(id) {
   return `rsvp_state_${id}`;
 }
 
+function waitForRSVPDatabase(timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const timer = window.setInterval(() => {
+      if (window.RSVPDatabase?.getConfirmationByGuestId) {
+        window.clearInterval(timer);
+        resolve(window.RSVPDatabase);
+        return;
+      }
+
+      if (Date.now() - start > timeoutMs) {
+        window.clearInterval(timer);
+        reject(new Error("RSVPDatabase no disponible."));
+      }
+    }, 50);
+  });
+}
+
 function setupResultModal() {
   const backdrop = document.getElementById("rsvpResultBackdrop");
   const textEl = document.getElementById("rsvpResultText");
@@ -128,13 +146,55 @@ document.addEventListener("DOMContentLoaded", () => {
         : "Lamentamos que no puedas acompañarnos, te extrañaremos.";
   };
 
-  const savedRaw = localStorage.getItem(keyFor(guest.id));
-  if (savedRaw) {
+  async function hydrateConfirmationState() {
+    const storageKey = keyFor(guest.id);
+    const savedRaw = localStorage.getItem(storageKey);
+
     try {
-      paintConfirmed(JSON.parse(savedRaw));
-      return;
-    } catch {
-      localStorage.removeItem(keyFor(guest.id));
+      const rsvpDB = await waitForRSVPDatabase();
+      console.log("[RSVP] Consultando confirmación remota", `eventos/${eventId}/rsvp/${guest.id}`);
+      const remoteConfirmation = await rsvpDB.getConfirmationByGuestId(eventId, guest.id);
+
+      if (remoteConfirmation) {
+        const remoteState = {
+          eventId,
+          guestId: guest.id,
+          guestName: guest.name,
+          assignedPasses: guest.passes,
+          answer: remoteConfirmation.respuesta === "no" ? "no" : "yes",
+          guests: Number(remoteConfirmation.cantidadConfirmada || 0),
+          at: Number(remoteConfirmation.fechaConfirmacion || Date.now()),
+          atLocal: new Date(Number(remoteConfirmation.fechaConfirmacion || Date.now())).toISOString()
+        };
+        localStorage.setItem(storageKey, JSON.stringify(remoteState));
+        console.log("[RSVP] Confirmación remota encontrada", remoteState);
+        paintConfirmed(remoteState);
+        return true;
+      }
+
+      if (savedRaw) {
+        console.warn("[RSVP] Había confirmación local pero no existe en Firebase. Limpiando estado local.", { guestId: guest.id });
+        localStorage.removeItem(storageKey);
+      }
+      return false;
+    } catch (error) {
+      console.warn("[RSVP] No se pudo consultar confirmación remota. Usando fallback local si existe.", error);
+
+      if (!savedRaw) return false;
+
+      try {
+        const savedState = JSON.parse(savedRaw);
+        if (savedState?.eventId === eventId && savedState?.guestId === guest.id) {
+          console.log("[RSVP] Usando confirmación local fallback", savedState);
+          paintConfirmed(savedState);
+          return true;
+        }
+        localStorage.removeItem(storageKey);
+      } catch {
+        localStorage.removeItem(storageKey);
+      }
+
+      return false;
     }
   }
 
@@ -173,7 +233,6 @@ document.addEventListener("DOMContentLoaded", () => {
       at: Date.now(),
       atLocal: new Date().toISOString(),
     };
-    localStorage.setItem(keyFor(guest.id), JSON.stringify(state));
 
     try {
       const rsvpDB = window.RSVPDatabase;
@@ -194,6 +253,7 @@ document.addEventListener("DOMContentLoaded", () => {
           cantidadConfirmada: answer === "yes" ? Number(selectGuests.value || 1) : 0,
           fechaConfirmacion: Date.now(),
         });
+        localStorage.setItem(keyFor(guest.id), JSON.stringify(state));
         console.log("[RSVP] Confirmación guardada en Firebase con éxito", `eventos/${eventId}/rsvp/${guest.id}`);
       }
     } catch (error) {
@@ -216,4 +276,6 @@ document.addEventListener("DOMContentLoaded", () => {
     showResult(popupText);
     paintConfirmed(state);
   });
+
+  hydrateConfirmationState();
 });
