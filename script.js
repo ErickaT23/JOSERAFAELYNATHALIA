@@ -123,10 +123,11 @@ function startPhotoSlider() {
   }, 3500);
 }
 
-function toggleCollapsiblePanel(panel) {
+function toggleCollapsiblePanel(panel, trigger) {
   if (!panel) return;
   const isOpen = panel.classList.toggle("is-open");
   panel.setAttribute("aria-hidden", isOpen ? "false" : "true");
+  if (trigger) trigger.setAttribute("aria-expanded", isOpen ? "true" : "false");
 }
 
 function getEventId() {
@@ -252,10 +253,16 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("btnToggleWishForm")?.addEventListener("click", () => {
-    toggleCollapsiblePanel(document.getElementById("wishFormPanel"));
+    toggleCollapsiblePanel(
+      document.getElementById("wishFormPanel"),
+      document.getElementById("btnToggleWishForm")
+    );
   });
   document.getElementById("btnToggleWishes")?.addEventListener("click", () => {
-    toggleCollapsiblePanel(document.getElementById("wishesPanel"));
+    toggleCollapsiblePanel(
+      document.getElementById("wishesPanel"),
+      document.getElementById("btnToggleWishes")
+    );
   });
 
   const wishForm = document.getElementById("wish-form");
