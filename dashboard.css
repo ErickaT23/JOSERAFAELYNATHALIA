@@ -488,6 +488,15 @@ body {
     color: var(--rose-deep);
 }
 
+.name-cell-meta {
+    display: block;
+    margin-top: 0.26rem;
+    color: var(--ink-soft);
+    font-size: 0.74rem;
+    line-height: 1.45;
+    font-weight: 400;
+}
+
 .date-main,
 .date-sub {
     display: block;
@@ -592,6 +601,12 @@ body {
     gap: 0.65rem;
     color: var(--ink-soft);
     font-size: 0.82rem;
+}
+
+.confirmation-card-line--stacked {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.2rem;
 }
 
 .confirmation-card-line strong {

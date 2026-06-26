@@ -1,10 +1,32 @@
 const guests = [
-  { id: "1", name: "Familia García", passes: 4 },
-  { id: "2", name: "Ana Martínez", passes: 2 },
-  { id: "3", name: "Carlos y Sofía López", passes: 2 },
-  { id: "4", name: "Familia Rodríguez", passes: 6 },
-  { id: "5", name: "María Fernanda Pérez", passes: 1 }
+  {
+    id: "1",
+    name: "Familia Barrientos",
+    passes: 3,
+    members: [
+      { name: "Wendy Barrientos", passes: 1 },
+      { name: "Mishell Barrientos", passes: 1 },
+      { name: "Rodolfo Barrientos", passes: 1 }
+    ]
+  }
 ];
+
+function normalizeGuestMembers(rawMembers) {
+  if (!Array.isArray(rawMembers)) return [];
+
+  return rawMembers
+    .map((member, index) => {
+      const name = String(member?.name || member?.nombre || "").trim();
+      if (!name) return null;
+
+      return {
+        id: String(member?.id || member?.guestId || `member-${index + 1}`),
+        name,
+        passes: Math.max(1, Number(member?.passes || member?.pases || 1))
+      };
+    })
+    .filter(Boolean);
+}
 
 window.guests = guests;
 window.LocalGuestSeeds = {
@@ -14,6 +36,11 @@ window.LocalGuestSeeds = {
       id: String(guest.id),
       nombre: guest.name,
       pases: Number(guest.passes || 1),
+      integrantes: normalizeGuestMembers(guest.members).map((member) => ({
+        id: member.id,
+        nombre: member.name,
+        pases: member.passes
+      })),
       activo: true
     };
     return acc;
@@ -64,7 +91,8 @@ function setCurrentGuest(guest) {
   window.currentGuest = {
     id: String(guest.id),
     name: String(guest.name || guest.nombre || "Invitado especial").trim() || "Invitado especial",
-    passes: Math.max(1, Number(guest.passes || guest.pases) || 1)
+    passes: Math.max(1, Number(guest.passes || guest.pases) || 1),
+    members: normalizeGuestMembers(guest.members || guest.integrantes)
   };
 
   renderGuestCard(window.currentGuest);

@@ -599,6 +599,19 @@ async function saveConfirmation(arg1, arg2) {
     pasesAsignados: Number((payload && payload.pasesAsignados) || 0),
     respuesta: payload && payload.respuesta === "no" ? "no" : "si",
     cantidadConfirmada: Number((payload && payload.cantidadConfirmada) || 0),
+    integrantesConfirmados: Array.isArray(payload && payload.integrantesConfirmados)
+      ? payload.integrantesConfirmados
+        .map(function (member) {
+          const nombre = String(member && (member.nombre || member.name) || "").trim();
+          if (!nombre) return null;
+          return {
+            id: String(member && member.id || "").trim(),
+            nombre,
+            pasesAsignados: Math.max(1, Number(member && (member.pasesAsignados || member.passes) || 1))
+          };
+        })
+        .filter(Boolean)
+      : [],
     confirmado: true,
     fechaConfirmacion: Number((payload && payload.fechaConfirmacion) || Date.now())
   };
@@ -1119,11 +1132,17 @@ async function seedEventData(arg1, arg2) {
   const force = Boolean(options.force);
 
   const sampleGuests = {
-    "1": { id: "1", nombre: "Familia García", pases: 4, activo: true },
-    "2": { id: "2", nombre: "Ana Martínez", pases: 2, activo: true },
-    "3": { id: "3", nombre: "Carlos y Sofía López", pases: 2, activo: true },
-    "4": { id: "4", nombre: "Familia Rodríguez", pases: 6, activo: true },
-    "5": { id: "5", nombre: "María Fernanda Pérez", pases: 1, activo: true }
+    "1": {
+      id: "1",
+      nombre: "Familia Barrientos",
+      pases: 3,
+      integrantes: [
+        { id: "member-1", nombre: "Wendy Barrientos", pases: 1 },
+        { id: "member-2", nombre: "Mishell Barrientos", pases: 1 },
+        { id: "member-3", nombre: "Rodolfo Barrientos", pases: 1 }
+      ],
+      activo: true
+    }
   };
 
   const [rsvpSnapshot, wishesSnapshot] = await Promise.all([

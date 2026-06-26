@@ -78,8 +78,33 @@ function normalizeConfirmation(record) {
         cantidadConfirmada: response === "si"
             ? Math.max(0, Number(record && record.cantidadConfirmada) || 0)
             : 0,
+        integrantesConfirmados: Array.isArray(record && record.integrantesConfirmados)
+            ? record.integrantesConfirmados
+                .map((member) => {
+                    const nombre = String(member && (member.nombre || member.name) || "").trim();
+                    if (!nombre) return null;
+                    return {
+                        nombre,
+                        pasesAsignados: Math.max(1, Number(member && (member.pasesAsignados || member.passes) || 1))
+                    };
+                })
+                .filter(Boolean)
+            : [],
         fechaConfirmacion: Number(record && record.fechaConfirmacion) || null
     };
+}
+
+function formatConfirmedMembers(members) {
+    if (!Array.isArray(members) || members.length === 0) return "--";
+
+    return members
+        .map((member) => {
+            const passes = Math.max(1, Number(member && member.pasesAsignados) || 1);
+            const label = passes === 1 ? "pase" : "pases";
+            return String(member && member.nombre || "") + " (" + passes + " " + label + ")";
+        })
+        .filter(Boolean)
+        .join(", ");
 }
 
 function buildRows(confirmations, guestDirectory) {
@@ -306,7 +331,16 @@ function renderDesktopTable(rows, emptyMessage) {
 
         const nameTd = document.createElement("td");
         nameTd.className = "name-cell";
-        nameTd.textContent = row.nombre || "--";
+        const nameMain = document.createElement("div");
+        nameMain.textContent = row.nombre || "--";
+        nameTd.appendChild(nameMain);
+
+        if (row.respuesta === "si" && Array.isArray(row.integrantesConfirmados) && row.integrantesConfirmados.length > 0) {
+            const nameMeta = document.createElement("span");
+            nameMeta.className = "name-cell-meta";
+            nameMeta.textContent = "Integrantes confirmados: " + formatConfirmedMembers(row.integrantesConfirmados);
+            nameTd.appendChild(nameMeta);
+        }
 
         const assignedTd = document.createElement("td");
         assignedTd.textContent = String(Number(row.pasesAsignados) || 0);
@@ -417,7 +451,17 @@ function renderMobileCards(rows, emptyMessage) {
         timeValue.textContent = dateParts.time;
         lineTime.append(timeLabel, timeValue);
 
-        details.append(lineAssigned, lineConfirmed, lineDate, lineTime);
+        const lineMembers = document.createElement("div");
+        lineMembers.className = "confirmation-card-line confirmation-card-line--stacked";
+        const membersLabel = document.createElement("span");
+        membersLabel.textContent = "Integrantes confirmados";
+        const membersValue = document.createElement("strong");
+        membersValue.textContent = responseValue === "si"
+            ? formatConfirmedMembers(row.integrantesConfirmados)
+            : "--";
+        lineMembers.append(membersLabel, membersValue);
+
+        details.append(lineAssigned, lineConfirmed, lineDate, lineTime, lineMembers);
         card.append(nameEl, statusWrap, details);
         mobileList.appendChild(card);
     });
