@@ -167,7 +167,7 @@ function buildRows(confirmations, guestDirectory) {
 
         rows.push({
             ...confirmation,
-            nombre: confirmation.nombre || String(guest.nombre || ""),
+            nombre: String(guest.nombre || "") || confirmation.nombre,
             pasesAsignados: confirmation.pasesAsignados || Math.max(0, Number(guest.pases) || 0)
         });
     });

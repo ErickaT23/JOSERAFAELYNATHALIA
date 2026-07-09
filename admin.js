@@ -703,7 +703,7 @@
 
             rows.push({
                 ...confirmation,
-                nombre: confirmation.nombre || guest.nombre,
+                nombre: guest.nombre || confirmation.nombre,
                 pasesAsignados: confirmation.pasesAsignados || guest.pases,
                 activo: guest.activo,
                 canEdit: guest.activo !== false,
