@@ -548,12 +548,71 @@ function createAlreadyConfirmedError(existingData) {
   return error;
 }
 
+function normalizeConfirmedMembers(rawMembers) {
+  if (!Array.isArray(rawMembers)) return [];
+
+  return rawMembers
+    .map(function (member) {
+      const id = String(member && member.id || "").trim();
+      const nombre = String(member && (member.nombre || member.name) || "").trim();
+      if (!id || !nombre) return null;
+
+      return {
+        id,
+        nombre,
+        pasesAsignados: Math.max(1, Number(member && (member.pasesAsignados || member.passes) || 1))
+      };
+    })
+    .filter(Boolean);
+}
+
+function mergeConfirmedMembers(baseMembers, extraMembers) {
+  const merged = [];
+  const seen = new Set();
+
+  [baseMembers, extraMembers].forEach(function (collection) {
+    normalizeConfirmedMembers(collection).forEach(function (member) {
+      if (seen.has(member.id)) return;
+      seen.add(member.id);
+      merged.push(member);
+    });
+  });
+
+  return merged;
+}
+
 async function saveConfirmationWithTransaction(targetRef, record) {
   const transactionResult = await runTransaction(
     targetRef,
     function (currentData) {
       if (currentData && currentData.confirmado) {
-        return;
+        const currentMembers = normalizeConfirmedMembers(currentData.integrantesConfirmados);
+        const currentDeclinedMembers = normalizeConfirmedMembers(currentData.integrantesDeclinados);
+
+        if (currentData.respuesta === "no" && currentMembers.length === 0 && currentDeclinedMembers.length === 0) {
+          return;
+        }
+
+        const nextMembers = mergeConfirmedMembers(currentMembers, record.integrantesConfirmados);
+        const nextDeclinedMembers = mergeConfirmedMembers(currentDeclinedMembers, record.integrantesDeclinados)
+          .filter(function (member) {
+            return !nextMembers.some(function (confirmedMember) {
+              return confirmedMember.id === member.id;
+            });
+          });
+
+        return {
+          ...currentData,
+          ...record,
+          respuesta: record.respuesta === "no" && nextMembers.length === 0 ? "no" : "si",
+          cantidadConfirmada: nextMembers.reduce(function (total, member) {
+            return total + Math.max(1, Number(member.pasesAsignados) || 1);
+          }, 0),
+          integrantesConfirmados: nextMembers,
+          integrantesDeclinados: nextDeclinedMembers,
+          confirmado: true,
+          fechaConfirmacion: Number(record.fechaConfirmacion || Date.now())
+        };
       }
       return record;
     },
@@ -599,19 +658,8 @@ async function saveConfirmation(arg1, arg2) {
     pasesAsignados: Number((payload && payload.pasesAsignados) || 0),
     respuesta: payload && payload.respuesta === "no" ? "no" : "si",
     cantidadConfirmada: Number((payload && payload.cantidadConfirmada) || 0),
-    integrantesConfirmados: Array.isArray(payload && payload.integrantesConfirmados)
-      ? payload.integrantesConfirmados
-        .map(function (member) {
-          const nombre = String(member && (member.nombre || member.name) || "").trim();
-          if (!nombre) return null;
-          return {
-            id: String(member && member.id || "").trim(),
-            nombre,
-            pasesAsignados: Math.max(1, Number(member && (member.pasesAsignados || member.passes) || 1))
-          };
-        })
-        .filter(Boolean)
-      : [],
+    integrantesConfirmados: normalizeConfirmedMembers(payload && payload.integrantesConfirmados),
+    integrantesDeclinados: normalizeConfirmedMembers(payload && payload.integrantesDeclinados),
     confirmado: true,
     fechaConfirmacion: Number((payload && payload.fechaConfirmacion) || Date.now())
   };

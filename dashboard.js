@@ -90,6 +90,18 @@ function normalizeConfirmation(record) {
                 })
                 .filter(Boolean)
             : [],
+        integrantesDeclinados: Array.isArray(record && record.integrantesDeclinados)
+            ? record.integrantesDeclinados
+                .map((member) => {
+                    const nombre = String(member && (member.nombre || member.name) || "").trim();
+                    if (!nombre) return null;
+                    return {
+                        nombre,
+                        pasesAsignados: Math.max(1, Number(member && (member.pasesAsignados || member.passes) || 1))
+                    };
+                })
+                .filter(Boolean)
+            : [],
         fechaConfirmacion: Number(record && record.fechaConfirmacion) || null
     };
 }
@@ -105,6 +117,25 @@ function formatConfirmedMembers(members) {
         })
         .filter(Boolean)
         .join(", ");
+}
+
+function countMemberPasses(members) {
+    if (!Array.isArray(members)) return 0;
+    return members.reduce((acc, member) => acc + Math.max(1, Number(member && member.pasesAsignados) || 1), 0);
+}
+
+function getConfirmedPasses(row) {
+    const memberCount = countMemberPasses(row && row.integrantesConfirmados);
+    if (memberCount > 0) return memberCount;
+    if (row && row.respuesta === "si") return Math.max(0, Number(row.cantidadConfirmada) || 0);
+    return 0;
+}
+
+function getDeclinedPasses(row) {
+    const declinedCount = countMemberPasses(row && row.integrantesDeclinados);
+    if (declinedCount > 0) return declinedCount;
+    if (row && row.respuesta === "no") return Math.max(0, Number(row.pasesAsignados) || 0);
+    return 0;
 }
 
 function buildRows(confirmations, guestDirectory) {
@@ -189,8 +220,8 @@ function formatConfirmationDateParts(value) {
 }
 
 function toResponseLabel(response) {
-    if (response === "si") return "confirmado";
-    if (response === "no") return "no asistirán";
+    if (response === "si") return "asistencia confirmada";
+    if (response === "no") return "no podrán asistir";
     return "pendiente";
 }
 
@@ -284,15 +315,15 @@ function downloadCsvFile(content, eventId) {
 
 function setSummaryValues(rows) {
     const totalGuests = rows.length;
-    const totalYes = rows
-        .filter((row) => row && row.respuesta === "si")
-        .reduce((acc, row) => acc + (Number(row && row.cantidadConfirmada) || 0), 0);
-    const totalNo = rows
-        .filter((row) => row && row.respuesta === "no")
-        .reduce((acc, row) => acc + (Number(row && row.pasesAsignados) || 0), 0);
-    const totalPending = rows
-        .filter((row) => row && row.respuesta === "pendiente")
-        .reduce((acc, row) => acc + (Number(row && row.pasesAsignados) || 0), 0);
+    const totalYes = rows.reduce((acc, row) => acc + getConfirmedPasses(row), 0);
+    const totalNo = rows.reduce((acc, row) => acc + getDeclinedPasses(row), 0);
+    const totalPending = rows.reduce((acc, row) => {
+        const assigned = Math.max(0, Number(row && row.pasesAsignados) || 0);
+        const confirmed = getConfirmedPasses(row);
+        const declined = getDeclinedPasses(row);
+        const pending = Math.max(0, assigned - confirmed - declined);
+        return acc + pending;
+    }, 0);
     const totalConfirmedPeople = rows
         .filter((row) => row.respuesta === "si")
         .reduce((acc, row) => acc + (Number(row.cantidadConfirmada) || 0), 0);
@@ -338,8 +369,15 @@ function renderDesktopTable(rows, emptyMessage) {
         if (row.respuesta === "si" && Array.isArray(row.integrantesConfirmados) && row.integrantesConfirmados.length > 0) {
             const nameMeta = document.createElement("span");
             nameMeta.className = "name-cell-meta";
-            nameMeta.textContent = "Integrantes confirmados: " + formatConfirmedMembers(row.integrantesConfirmados);
+            nameMeta.textContent = "Asistencia confirmada: " + formatConfirmedMembers(row.integrantesConfirmados);
             nameTd.appendChild(nameMeta);
+        }
+
+        if (Array.isArray(row.integrantesDeclinados) && row.integrantesDeclinados.length > 0) {
+            const declinedMeta = document.createElement("span");
+            declinedMeta.className = "name-cell-meta";
+            declinedMeta.textContent = "No podrán asistir: " + formatConfirmedMembers(row.integrantesDeclinados);
+            nameTd.appendChild(declinedMeta);
         }
 
         const assignedTd = document.createElement("td");
@@ -428,7 +466,7 @@ function renderMobileCards(rows, emptyMessage) {
         const lineConfirmed = document.createElement("div");
         lineConfirmed.className = "confirmation-card-line";
         const confirmedLabel = document.createElement("span");
-        confirmedLabel.textContent = "Pases confirmados";
+        confirmedLabel.textContent = "Pases con asistencia confirmada";
         const confirmedValue = document.createElement("strong");
         confirmedValue.textContent = responseValue === "pendiente"
             ? "--"
@@ -454,14 +492,24 @@ function renderMobileCards(rows, emptyMessage) {
         const lineMembers = document.createElement("div");
         lineMembers.className = "confirmation-card-line confirmation-card-line--stacked";
         const membersLabel = document.createElement("span");
-        membersLabel.textContent = "Integrantes confirmados";
+        membersLabel.textContent = "Asistencia confirmada";
         const membersValue = document.createElement("strong");
         membersValue.textContent = responseValue === "si"
             ? formatConfirmedMembers(row.integrantesConfirmados)
             : "--";
         lineMembers.append(membersLabel, membersValue);
 
-        details.append(lineAssigned, lineConfirmed, lineDate, lineTime, lineMembers);
+        const lineDeclined = document.createElement("div");
+        lineDeclined.className = "confirmation-card-line confirmation-card-line--stacked";
+        const declinedLabel = document.createElement("span");
+        declinedLabel.textContent = "No podrán asistir";
+        const declinedValue = document.createElement("strong");
+        declinedValue.textContent = Array.isArray(row.integrantesDeclinados) && row.integrantesDeclinados.length > 0
+            ? formatConfirmedMembers(row.integrantesDeclinados)
+            : "--";
+        lineDeclined.append(declinedLabel, declinedValue);
+
+        details.append(lineAssigned, lineConfirmed, lineDate, lineTime, lineMembers, lineDeclined);
         card.append(nameEl, statusWrap, details);
         mobileList.appendChild(card);
     });
