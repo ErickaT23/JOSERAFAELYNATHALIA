@@ -189,6 +189,23 @@ function mapInvitadosSnapshotToArray(snapshot) {
     });
 }
 
+function normalizeInvitadoMembers(rawMembers) {
+  if (!Array.isArray(rawMembers)) return [];
+
+  return rawMembers
+    .map(function (member, index) {
+      const nombre = sanitizeText(member && (member.nombre || member.name));
+      if (!nombre) return null;
+
+      return {
+        id: String(member && (member.id || member.guestId) || "member-" + (index + 1)).trim() || "member-" + (index + 1),
+        nombre,
+        pases: Math.max(1, Number(member && (member.pases || member.passes || member.pasesAsignados) || 1))
+      };
+    })
+    .filter(Boolean);
+}
+
 function mergeWishesRecords(eventRecords, legacyRecords) {
   const all = [];
   if (Array.isArray(eventRecords)) all.push(...eventRecords);
@@ -935,6 +952,7 @@ async function createInvitado(arg1, arg2) {
   const nombre = sanitizeText(payload.nombre);
   const pases = Math.max(1, Number(payload.pases) || 1);
   const activo = typeof payload.activo === "undefined" ? true : Boolean(payload.activo);
+  const integrantes = normalizeInvitadoMembers(payload.integrantes || payload.members);
 
   if (!nombre) {
     throw new Error("INVITADO_NOMBRE_REQUERIDO");
@@ -945,6 +963,7 @@ async function createInvitado(arg1, arg2) {
     id,
     nombre,
     pases,
+    integrantes,
     activo
   };
 
@@ -970,10 +989,17 @@ async function updateInvitado(arg1, arg2, arg3) {
   }
 
   const safeGuestId = sanitizeFirebaseKey(guestId);
+  const currentSnapshot = await get(ref(db, getEventInvitadosPath(eventId) + "/" + safeGuestId));
+  const current = currentSnapshot.exists() ? currentSnapshot.val() || {} : {};
+  const providedMembers = payload.integrantes || payload.members;
+  const integrantes = typeof providedMembers === "undefined"
+    ? normalizeInvitadoMembers(current.integrantes)
+    : normalizeInvitadoMembers(providedMembers);
   const invitadoRecord = {
     id: guestId,
     nombre,
     pases,
+    integrantes,
     activo
   };
 
@@ -1070,6 +1096,7 @@ async function migrateLocalGuestsToFirebase(arg1, arg2, arg3) {
           id: String(guest.id),
           nombre: String(guest.nombre || "").trim(),
           pases: Math.max(1, Number(guest.pases) || 1),
+          integrantes: normalizeInvitadoMembers(guest.integrantes || guest.members),
           activo: typeof guest.activo === "undefined" ? true : Boolean(guest.activo)
         });
       })

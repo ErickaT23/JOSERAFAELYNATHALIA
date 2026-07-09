@@ -215,6 +215,11 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
+      if (hasMembers()) {
+        membersWrap.style.display = "block";
+        return;
+      }
+
       membersWrap.style.display = "none";
       return;
     }

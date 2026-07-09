@@ -695,8 +695,15 @@ async function loadRemoteGuest(guestId) {
     const db = await waitForRSVPDatabase();
     const remoteGuest = await db.getInvitadoById(eventId, guestId);
     if (remoteGuest && remoteGuest.activo !== false) {
+      const localGuest = guests.find((guest) => String(guest.id) === String(guestId));
+      const mergedGuest = {
+        ...remoteGuest,
+        integrantes: Array.isArray(remoteGuest.integrantes) && remoteGuest.integrantes.length > 0
+          ? remoteGuest.integrantes
+          : (localGuest?.members || [])
+      };
       console.log("[RSVP][GuestLoad] Invitado encontrado en Firebase", remoteGuest);
-      setCurrentGuest(remoteGuest);
+      setCurrentGuest(mergedGuest);
       return;
     }
 
