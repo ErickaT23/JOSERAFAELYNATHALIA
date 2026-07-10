@@ -138,6 +138,13 @@ function getDeclinedPasses(row) {
     return 0;
 }
 
+function getPendingPasses(row) {
+    const assigned = Math.max(0, Number(row && row.pasesAsignados) || 0);
+    const confirmed = getConfirmedPasses(row);
+    const declined = getDeclinedPasses(row);
+    return Math.max(0, assigned - confirmed - declined);
+}
+
 function buildRows(confirmations, guestDirectory) {
     const localGuestDirectory = guestDirectory || {};
     const rows = [];
@@ -253,6 +260,9 @@ function compareGuestIds(a, b) {
 
 function matchesActiveFilter(row, filter) {
     if (filter === "todos") return true;
+    if (filter === "si") return getConfirmedPasses(row) > 0;
+    if (filter === "no") return getDeclinedPasses(row) > 0;
+    if (filter === "pendiente") return getPendingPasses(row) > 0;
     return String(row && row.respuesta || "") === filter;
 }
 
@@ -318,11 +328,7 @@ function setSummaryValues(rows) {
     const totalYes = rows.reduce((acc, row) => acc + getConfirmedPasses(row), 0);
     const totalNo = rows.reduce((acc, row) => acc + getDeclinedPasses(row), 0);
     const totalPending = rows.reduce((acc, row) => {
-        const assigned = Math.max(0, Number(row && row.pasesAsignados) || 0);
-        const confirmed = getConfirmedPasses(row);
-        const declined = getDeclinedPasses(row);
-        const pending = Math.max(0, assigned - confirmed - declined);
-        return acc + pending;
+        return acc + getPendingPasses(row);
     }, 0);
     const totalConfirmedPeople = rows
         .filter((row) => row.respuesta === "si")

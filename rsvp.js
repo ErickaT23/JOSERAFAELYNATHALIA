@@ -296,9 +296,9 @@ document.addEventListener("DOMContentLoaded", () => {
     btnConfirm.style.display = "inline-flex";
     if (inlineBlock) inlineBlock.style.display = "grid";
     intro.textContent = "Tu confirmación sigue abierta para los integrantes pendientes.";
-    msg.style.display = "block";
-    msg.className = "rsvp-msg ok";
-    msg.textContent = "Los integrantes que ya respondieron quedaron registrados. Ahora puedes continuar con los que siguen pendientes.";
+    msg.style.display = "none";
+    msg.className = "rsvp-msg";
+    msg.textContent = "";
   };
 
   const paintConfirmed = (state) => {
@@ -568,14 +568,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     console.log("[RSVP] Confirmación completada", state);
-    const popupText =
-      hasMembers() && hasOpenPendingMembers
-        ? finalAnswer === "yes"
-          ? "Tu respuesta fue guardada. Todavia quedan integrantes pendientes por responder."
-          : "La respuesta fue guardada. Todavia quedan integrantes pendientes por responder."
-        : finalAnswer === "yes"
-        ? "Gracias por confirmar tu asistencia, te vemos pronto."
-        : "Lamentamos que no puedas acompañarnos, te extrañaremos.";
+    const popupText = finalAnswer === "yes"
+      ? "Gracias por confirmar tu asistencia, te vemos pronto"
+      : "Lamentamos que no puedas acompanarnos, te extranaremos";
 
     showResult(popupText);
     if (hasMembers() && hasOpenPendingMembers) {
