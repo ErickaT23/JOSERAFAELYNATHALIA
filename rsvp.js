@@ -568,7 +568,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     console.log("[RSVP] Confirmación completada", state);
-    const popupText = finalAnswer === "yes"
+    const popupText = answer === "yes"
       ? "Gracias por confirmar tu asistencia, te vemos pronto"
       : "Lamentamos que no puedas acompanarnos, te extranaremos";
 

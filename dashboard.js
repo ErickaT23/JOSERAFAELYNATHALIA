@@ -33,6 +33,23 @@ function getGuestDirectoryForEvent(eventId) {
     return guestDirectoriesByEvent[eventId] || {};
 }
 
+function normalizeGuestMembers(rawMembers) {
+    if (!Array.isArray(rawMembers)) return [];
+
+    return rawMembers
+        .map((member, index) => {
+            const nombre = String(member && (member.nombre || member.name) || "").trim();
+            if (!nombre) return null;
+
+            return {
+                id: String(member && (member.id || member.guestId || ("member-" + (index + 1))) || ("member-" + (index + 1))),
+                nombre,
+                pasesAsignados: Math.max(1, Number(member && (member.pasesAsignados || member.pases || member.passes) || 1))
+            };
+        })
+        .filter(Boolean);
+}
+
 function mapInvitadosToDirectory(invitados) {
     const directory = {};
 
@@ -49,7 +66,8 @@ function mapInvitadosToDirectory(invitados) {
 
         directory[id] = {
             nombre: String(invitado.nombre || "").trim() || "Invitado",
-            pases: Math.max(0, Number(invitado.pases) || 0)
+            pases: Math.max(0, Number(invitado.pases) || 0),
+            integrantes: normalizeGuestMembers(invitado.integrantes || invitado.members)
         };
     });
 
@@ -84,6 +102,7 @@ function normalizeConfirmation(record) {
                     const nombre = String(member && (member.nombre || member.name) || "").trim();
                     if (!nombre) return null;
                     return {
+                        id: String(member && (member.id || member.guestId || nombre) || nombre),
                         nombre,
                         pasesAsignados: Math.max(1, Number(member && (member.pasesAsignados || member.passes) || 1))
                     };
@@ -96,6 +115,7 @@ function normalizeConfirmation(record) {
                     const nombre = String(member && (member.nombre || member.name) || "").trim();
                     if (!nombre) return null;
                     return {
+                        id: String(member && (member.id || member.guestId || nombre) || nombre),
                         nombre,
                         pasesAsignados: Math.max(1, Number(member && (member.pasesAsignados || member.passes) || 1))
                     };
@@ -145,6 +165,21 @@ function getPendingPasses(row) {
     return Math.max(0, assigned - confirmed - declined);
 }
 
+function getPendingMembers(row) {
+    const guestMembers = Array.isArray(row && row.integrantes) ? row.integrantes : [];
+    if (guestMembers.length === 0) return [];
+
+    const resolvedIds = new Set([
+        ...((Array.isArray(row && row.integrantesConfirmados) ? row.integrantesConfirmados : []).map((member) => String(member && member.id || member && member.nombre || "").trim()).filter(Boolean)),
+        ...((Array.isArray(row && row.integrantesDeclinados) ? row.integrantesDeclinados : []).map((member) => String(member && member.id || member && member.nombre || "").trim()).filter(Boolean))
+    ]);
+
+    return guestMembers.filter((member) => {
+        const memberId = String(member && member.id || member && member.nombre || "").trim();
+        return memberId && !resolvedIds.has(memberId);
+    });
+}
+
 function buildRows(confirmations, guestDirectory) {
     const localGuestDirectory = guestDirectory || {};
     const rows = [];
@@ -165,6 +200,7 @@ function buildRows(confirmations, guestDirectory) {
                 id,
                 nombre: String(guest.nombre || ""),
                 pasesAsignados: Math.max(0, Number(guest.pases) || 0),
+                integrantes: normalizeGuestMembers(guest.integrantes),
                 respuesta: "pendiente",
                 cantidadConfirmada: 0,
                 fechaConfirmacion: null
@@ -175,7 +211,8 @@ function buildRows(confirmations, guestDirectory) {
         rows.push({
             ...confirmation,
             nombre: String(guest.nombre || "") || confirmation.nombre,
-            pasesAsignados: confirmation.pasesAsignados || Math.max(0, Number(guest.pases) || 0)
+            pasesAsignados: confirmation.pasesAsignados || Math.max(0, Number(guest.pases) || 0),
+            integrantes: normalizeGuestMembers(guest.integrantes)
         });
     });
 
@@ -419,7 +456,7 @@ function renderDesktopTable(rows, emptyMessage) {
     });
 }
 
-function renderMobileCards(rows, emptyMessage) {
+function renderMobileCards(rows, emptyMessage, activeFilter) {
     const mobileList = document.getElementById("confirmations-mobile-list");
     if (!mobileList) return;
 
@@ -495,35 +532,65 @@ function renderMobileCards(rows, emptyMessage) {
         timeValue.textContent = dateParts.time;
         lineTime.append(timeLabel, timeValue);
 
-        const lineMembers = document.createElement("div");
-        lineMembers.className = "confirmation-card-line confirmation-card-line--stacked";
-        const membersLabel = document.createElement("span");
-        membersLabel.textContent = "Asistencia confirmada";
-        const membersValue = document.createElement("strong");
-        membersValue.textContent = responseValue === "si"
-            ? formatConfirmedMembers(row.integrantesConfirmados)
-            : "--";
-        lineMembers.append(membersLabel, membersValue);
+        const visibleConfirmedMembers = activeFilter === "no" || activeFilter === "pendiente"
+            ? []
+            : row.integrantesConfirmados;
+        const visibleDeclinedMembers = activeFilter === "si" || activeFilter === "pendiente"
+            ? []
+            : row.integrantesDeclinados;
+        const visiblePendingMembers = activeFilter === "pendiente"
+            ? getPendingMembers(row)
+            : [];
 
-        const lineDeclined = document.createElement("div");
-        lineDeclined.className = "confirmation-card-line confirmation-card-line--stacked";
-        const declinedLabel = document.createElement("span");
-        declinedLabel.textContent = "No podrán asistir";
-        const declinedValue = document.createElement("strong");
-        declinedValue.textContent = Array.isArray(row.integrantesDeclinados) && row.integrantesDeclinados.length > 0
-            ? formatConfirmedMembers(row.integrantesDeclinados)
-            : "--";
-        lineDeclined.append(declinedLabel, declinedValue);
+        details.append(lineAssigned, lineConfirmed, lineDate, lineTime);
 
-        details.append(lineAssigned, lineConfirmed, lineDate, lineTime, lineMembers, lineDeclined);
+        if (activeFilter === "todos" || activeFilter === "si") {
+            const lineMembers = document.createElement("div");
+            lineMembers.className = "confirmation-card-line confirmation-card-line--stacked";
+            const membersLabel = document.createElement("span");
+            membersLabel.textContent = "Asistencia confirmada";
+            const membersValue = document.createElement("strong");
+            membersValue.textContent = Array.isArray(visibleConfirmedMembers) && visibleConfirmedMembers.length > 0
+                ? formatConfirmedMembers(visibleConfirmedMembers)
+                : "--";
+            lineMembers.append(membersLabel, membersValue);
+            details.append(lineMembers);
+        }
+
+        if (activeFilter === "todos" || activeFilter === "no") {
+            const lineDeclined = document.createElement("div");
+            lineDeclined.className = "confirmation-card-line confirmation-card-line--stacked";
+            const declinedLabel = document.createElement("span");
+            declinedLabel.textContent = "No podrán asistir";
+            const declinedValue = document.createElement("strong");
+            declinedValue.textContent = Array.isArray(visibleDeclinedMembers) && visibleDeclinedMembers.length > 0
+                ? formatConfirmedMembers(visibleDeclinedMembers)
+                : "--";
+            lineDeclined.append(declinedLabel, declinedValue);
+            details.append(lineDeclined);
+        }
+
+        if (activeFilter === "pendiente") {
+            const linePending = document.createElement("div");
+            linePending.className = "confirmation-card-line confirmation-card-line--stacked";
+            const pendingLabel = document.createElement("span");
+            pendingLabel.textContent = "Pendientes por responder";
+            const pendingValue = document.createElement("strong");
+            pendingValue.textContent = visiblePendingMembers.length > 0
+                ? formatConfirmedMembers(visiblePendingMembers)
+                : "--";
+            linePending.append(pendingLabel, pendingValue);
+            details.append(linePending);
+        }
+
         card.append(nameEl, statusWrap, details);
         mobileList.appendChild(card);
     });
 }
 
-function renderTable(rows, emptyMessage) {
+function renderTable(rows, emptyMessage, activeFilter) {
     renderDesktopTable(rows, emptyMessage);
-    renderMobileCards(rows, emptyMessage);
+    renderMobileCards(rows, emptyMessage, activeFilter);
 }
 
 document.addEventListener("DOMContentLoaded", function () {
@@ -579,7 +646,7 @@ document.addEventListener("DOMContentLoaded", function () {
         const emptyMessage = hasControlsApplied
             ? "No hay coincidencias con la búsqueda o filtro seleccionado."
             : "No hay confirmaciones para mostrar.";
-        renderTable(sortedRows, emptyMessage);
+        renderTable(sortedRows, emptyMessage, activeFilter);
         if (exportButton) exportButton.disabled = visibleRows.length === 0;
     }
 
