@@ -454,22 +454,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
   btnConfirm.addEventListener("click", async () => {
     console.log("[RSVP] Click confirmar", { answer, guest });
+    const submittedAnswer = answer;
 
     if (isRsvpClosed()) {
       applyClosedState();
       return;
     }
 
-    if (!answer) {
+    if (!submittedAnswer) {
       msg.style.display = "block";
       msg.className = "rsvp-msg error";
       msg.textContent = "Por favor selecciona una opción para continuar.";
       return;
     }
 
-    const selectedMembers = answer === "yes" ? getSelectedMembers() : [];
-    const selectedPendingMembers = answer === "no" && confirmedState ? getSelectedMembers() : [];
-    if (answer === "yes" && hasMembers() && selectedMembers.length === 0) {
+    const selectedMembers = submittedAnswer === "yes" ? getSelectedMembers() : [];
+    const selectedPendingMembers = submittedAnswer === "no" && confirmedState ? getSelectedMembers() : [];
+    if (submittedAnswer === "yes" && hasMembers() && selectedMembers.length === 0) {
       msg.style.display = "block";
       msg.className = "rsvp-msg error";
       msg.textContent = confirmedState
@@ -478,7 +479,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    if (answer === "no" && confirmedState && selectedPendingMembers.length === 0) {
+    if (submittedAnswer === "no" && confirmedState && selectedPendingMembers.length === 0) {
       msg.style.display = "block";
       msg.className = "rsvp-msg error";
       msg.textContent = "Selecciona al menos un integrante pendiente para marcar que no asistira.";
@@ -486,16 +487,18 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     btnConfirm.disabled = true;
+    btnYes.disabled = true;
+    btnNo.disabled = true;
 
-    const mergedMembers = answer === "yes"
+    const mergedMembers = submittedAnswer === "yes"
       ? mergeMemberSelections(getConfirmedMembers(), selectedMembers)
       : getConfirmedMembers();
-    const mergedDeclinedMembers = answer === "no" && confirmedState
+    const mergedDeclinedMembers = submittedAnswer === "no" && confirmedState
       ? mergeMemberSelections(getDeclinedMembers(), selectedPendingMembers)
-      : answer === "no" && hasMembers()
+      : submittedAnswer === "no" && hasMembers()
       ? mergeMemberSelections([], guest.members)
       : getDeclinedMembers();
-    const totalConfirmedGuests = (answer === "yes" || getConfirmedMembers().length > 0)
+    const totalConfirmedGuests = (submittedAnswer === "yes" || getConfirmedMembers().length > 0)
       ? hasMembers()
         ? mergedMembers.reduce((total, member) => total + member.passes, 0)
         : Math.max(1, Number(guest.passes || 1))
@@ -505,7 +508,7 @@ document.addEventListener("DOMContentLoaded", () => {
       ...mergedDeclinedMembers.map((member) => member.id)
     ]);
     const hasOpenPendingMembers = hasMembers() && guest.members.some((member) => !resolvedMemberIds.has(member.id));
-    const finalAnswer = answer === "yes"
+    const finalAnswer = submittedAnswer === "yes"
       ? "yes"
       : hasMembers()
       ? (mergedMembers.length > 0 ? "yes" : (hasOpenPendingMembers ? "yes" : "no"))
@@ -559,6 +562,8 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (error) {
       console.error("[RSVP] Error al guardar confirmación", error);
       btnConfirm.disabled = false;
+      btnYes.disabled = false;
+      btnNo.disabled = false;
       msg.style.display = "block";
       msg.className = "rsvp-msg error";
       msg.textContent = error?.code === "RSVP_ALREADY_CONFIRMED"
@@ -568,7 +573,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     console.log("[RSVP] Confirmación completada", state);
-    const popupText = answer === "yes"
+    const popupText = submittedAnswer === "yes"
       ? "Gracias por confirmar tu asistencia, te vemos pronto"
       : "Lamentamos que no puedas acompanarnos, te extranaremos";
 

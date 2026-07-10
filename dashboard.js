@@ -266,6 +266,19 @@ function formatConfirmationDateParts(value) {
 function toResponseLabel(response) {
     if (response === "si") return "asistencia confirmada";
     if (response === "no") return "no podrán asistir";
+    if (response === "parcial") return "respuesta parcial";
+    return "pendiente";
+}
+
+function getRowDisplayStatus(row) {
+    const hasConfirmed = getConfirmedPasses(row) > 0;
+    const hasDeclined = getDeclinedPasses(row) > 0;
+    const hasPending = getPendingPasses(row) > 0;
+    const activeStates = [hasConfirmed, hasDeclined, hasPending].filter(Boolean).length;
+
+    if (activeStates > 1) return "parcial";
+    if (hasConfirmed) return "si";
+    if (hasDeclined) return "no";
     return "pendiente";
 }
 
@@ -331,7 +344,7 @@ function buildCsvContent(rows) {
     const lines = [headers.map(escapeCsvCell).join(",")];
 
     rows.forEach((row) => {
-        const responseValue = row.respuesta === "si" || row.respuesta === "no" ? row.respuesta : "pendiente";
+        const responseValue = getRowDisplayStatus(row);
         const line = [
             row.nombre || "--",
             String(Number(row.pasesAsignados) || 0),
@@ -384,7 +397,7 @@ function setSummaryValues(rows) {
     if (totalConfirmedPeopleEl) totalConfirmedPeopleEl.textContent = String(totalConfirmedPeople);
 }
 
-function renderDesktopTable(rows, emptyMessage) {
+function renderDesktopTable(rows, emptyMessage, activeFilter) {
     const tableBody = document.getElementById("confirmations-table-body");
     if (!tableBody) return;
 
@@ -398,6 +411,15 @@ function renderDesktopTable(rows, emptyMessage) {
 
     rows.forEach((row) => {
         const tr = document.createElement("tr");
+        const visibleConfirmedMembers = activeFilter === "no" || activeFilter === "pendiente"
+            ? []
+            : row.integrantesConfirmados;
+        const visibleDeclinedMembers = activeFilter === "si" || activeFilter === "pendiente"
+            ? []
+            : row.integrantesDeclinados;
+        const visiblePendingMembers = activeFilter === "todos" || activeFilter === "pendiente"
+            ? getPendingMembers(row)
+            : [];
 
         const idTd = document.createElement("td");
         idTd.className = "id-cell";
@@ -409,18 +431,25 @@ function renderDesktopTable(rows, emptyMessage) {
         nameMain.textContent = row.nombre || "--";
         nameTd.appendChild(nameMain);
 
-        if (row.respuesta === "si" && Array.isArray(row.integrantesConfirmados) && row.integrantesConfirmados.length > 0) {
+        if ((activeFilter === "todos" || activeFilter === "si") && Array.isArray(visibleConfirmedMembers) && visibleConfirmedMembers.length > 0) {
             const nameMeta = document.createElement("span");
             nameMeta.className = "name-cell-meta";
-            nameMeta.textContent = "Asistencia confirmada: " + formatConfirmedMembers(row.integrantesConfirmados);
+            nameMeta.textContent = "Asistencia confirmada: " + formatConfirmedMembers(visibleConfirmedMembers);
             nameTd.appendChild(nameMeta);
         }
 
-        if (Array.isArray(row.integrantesDeclinados) && row.integrantesDeclinados.length > 0) {
+        if ((activeFilter === "todos" || activeFilter === "no") && Array.isArray(visibleDeclinedMembers) && visibleDeclinedMembers.length > 0) {
             const declinedMeta = document.createElement("span");
             declinedMeta.className = "name-cell-meta";
-            declinedMeta.textContent = "No podrán asistir: " + formatConfirmedMembers(row.integrantesDeclinados);
+            declinedMeta.textContent = "No podrán asistir: " + formatConfirmedMembers(visibleDeclinedMembers);
             nameTd.appendChild(declinedMeta);
+        }
+
+        if ((activeFilter === "todos" || activeFilter === "pendiente") && visiblePendingMembers.length > 0) {
+            const pendingMeta = document.createElement("span");
+            pendingMeta.className = "name-cell-meta";
+            pendingMeta.textContent = "Pendientes de Confirmar: " + formatConfirmedMembers(visiblePendingMembers);
+            nameTd.appendChild(pendingMeta);
         }
 
         const assignedTd = document.createElement("td");
@@ -428,7 +457,7 @@ function renderDesktopTable(rows, emptyMessage) {
 
         const responseTd = document.createElement("td");
         const badge = document.createElement("span");
-        const responseValue = row.respuesta === "si" || row.respuesta === "no" ? row.respuesta : "pendiente";
+        const responseValue = getRowDisplayStatus(row);
         badge.className = "status-badge status-badge--" + responseValue;
         badge.textContent = toResponseLabel(responseValue);
         responseTd.appendChild(badge);
@@ -485,7 +514,7 @@ function renderMobileCards(rows, emptyMessage, activeFilter) {
         const statusWrap = document.createElement("div");
         statusWrap.className = "confirmation-card-status";
 
-        const responseValue = row.respuesta === "si" || row.respuesta === "no" ? row.respuesta : "pendiente";
+        const responseValue = getRowDisplayStatus(row);
         const badge = document.createElement("span");
         badge.className = "status-badge status-badge--" + responseValue;
         badge.textContent = toResponseLabel(responseValue);
@@ -511,9 +540,7 @@ function renderMobileCards(rows, emptyMessage, activeFilter) {
         const confirmedLabel = document.createElement("span");
         confirmedLabel.textContent = "Pases con asistencia confirmada";
         const confirmedValue = document.createElement("strong");
-        confirmedValue.textContent = responseValue === "pendiente"
-            ? "--"
-            : String(Number(row.cantidadConfirmada) || 0);
+        confirmedValue.textContent = String(getConfirmedPasses(row));
         lineConfirmed.append(confirmedLabel, confirmedValue);
 
         const lineDate = document.createElement("div");
@@ -538,47 +565,41 @@ function renderMobileCards(rows, emptyMessage, activeFilter) {
         const visibleDeclinedMembers = activeFilter === "si" || activeFilter === "pendiente"
             ? []
             : row.integrantesDeclinados;
-        const visiblePendingMembers = activeFilter === "pendiente"
+        const visiblePendingMembers = activeFilter === "todos" || activeFilter === "pendiente"
             ? getPendingMembers(row)
             : [];
 
         details.append(lineAssigned, lineConfirmed, lineDate, lineTime);
 
-        if (activeFilter === "todos" || activeFilter === "si") {
+        if ((activeFilter === "todos" || activeFilter === "si") && Array.isArray(visibleConfirmedMembers) && visibleConfirmedMembers.length > 0) {
             const lineMembers = document.createElement("div");
             lineMembers.className = "confirmation-card-line confirmation-card-line--stacked";
             const membersLabel = document.createElement("span");
             membersLabel.textContent = "Asistencia confirmada";
             const membersValue = document.createElement("strong");
-            membersValue.textContent = Array.isArray(visibleConfirmedMembers) && visibleConfirmedMembers.length > 0
-                ? formatConfirmedMembers(visibleConfirmedMembers)
-                : "--";
+            membersValue.textContent = formatConfirmedMembers(visibleConfirmedMembers);
             lineMembers.append(membersLabel, membersValue);
             details.append(lineMembers);
         }
 
-        if (activeFilter === "todos" || activeFilter === "no") {
+        if ((activeFilter === "todos" || activeFilter === "no") && Array.isArray(visibleDeclinedMembers) && visibleDeclinedMembers.length > 0) {
             const lineDeclined = document.createElement("div");
             lineDeclined.className = "confirmation-card-line confirmation-card-line--stacked";
             const declinedLabel = document.createElement("span");
             declinedLabel.textContent = "No podrán asistir";
             const declinedValue = document.createElement("strong");
-            declinedValue.textContent = Array.isArray(visibleDeclinedMembers) && visibleDeclinedMembers.length > 0
-                ? formatConfirmedMembers(visibleDeclinedMembers)
-                : "--";
+            declinedValue.textContent = formatConfirmedMembers(visibleDeclinedMembers);
             lineDeclined.append(declinedLabel, declinedValue);
             details.append(lineDeclined);
         }
 
-        if (activeFilter === "pendiente") {
+        if ((activeFilter === "todos" || activeFilter === "pendiente") && visiblePendingMembers.length > 0) {
             const linePending = document.createElement("div");
             linePending.className = "confirmation-card-line confirmation-card-line--stacked";
             const pendingLabel = document.createElement("span");
-            pendingLabel.textContent = "Pendientes por responder";
+            pendingLabel.textContent = "Pendientes de Confirmar";
             const pendingValue = document.createElement("strong");
-            pendingValue.textContent = visiblePendingMembers.length > 0
-                ? formatConfirmedMembers(visiblePendingMembers)
-                : "--";
+            pendingValue.textContent = formatConfirmedMembers(visiblePendingMembers);
             linePending.append(pendingLabel, pendingValue);
             details.append(linePending);
         }
@@ -589,7 +610,7 @@ function renderMobileCards(rows, emptyMessage, activeFilter) {
 }
 
 function renderTable(rows, emptyMessage, activeFilter) {
-    renderDesktopTable(rows, emptyMessage);
+    renderDesktopTable(rows, emptyMessage, activeFilter);
     renderMobileCards(rows, emptyMessage, activeFilter);
 }
 
