@@ -99,8 +99,8 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   let guest = getGuest();
-  let answer = null;
   let confirmedState = null;
+  let savingMemberId = null;
 
   const eventId = window.config?.event?.defaultEventId || "joserafaelynathalia2026";
   console.log("[RSVP] Inicializando RSVP", { eventId, guest });
@@ -108,27 +108,24 @@ document.addEventListener("DOMContentLoaded", () => {
   const inputName = $("#rsvpNombre");
   const membersWrap = $("#rsvpMembersWrap");
   const membersList = $("#rsvpMembersList");
-  const btnYes = $("#btnRsvpSi");
-  const btnNo = $("#btnRsvpNo");
-  const btnConfirm = $("#btnConfirmarRsvp");
   const msg = $("#msgRsvp");
   const intro = $("#rsvpSection .rsvp-strong");
-  const actions = $("#rsvpInline .rsvp-actions");
   const inlineBlock = $("#rsvpInline");
   const showResult = setupResultModal();
 
-  if (!inputName || !membersWrap || !membersList || !btnYes || !btnNo || !btnConfirm || !msg || !intro) {
+  if (!inputName || !membersWrap || !membersList || !msg || !intro) {
     console.error("[RSVP] Elementos del formulario no encontrados.");
     return;
   }
 
-  console.log("[RSVP] Listeners activos", {
-    yesButton: Boolean(btnYes),
-    noButton: Boolean(btnNo),
-    confirmButton: Boolean(btnConfirm)
-  });
-
-  const hasMembers = () => guest.members.length > 0;
+  const getDisplayMembers = () => {
+    if (guest.members.length > 0) return guest.members;
+    return [{
+      id: guest.id,
+      name: guest.name,
+      passes: Math.max(1, Number(guest.passes || 1))
+    }];
+  };
 
   const getConfirmedMembers = () => Array.isArray(confirmedState?.memberSelections)
     ? confirmedState.memberSelections
@@ -144,119 +141,106 @@ document.addEventListener("DOMContentLoaded", () => {
   const getPendingMembers = () => {
     const confirmedIds = getConfirmedMemberIds();
     const declinedIds = getDeclinedMemberIds();
-    return guest.members.filter((member) => !confirmedIds.has(member.id) && !declinedIds.has(member.id));
+    return getDisplayMembers().filter((member) => !confirmedIds.has(member.id) && !declinedIds.has(member.id));
   };
 
-  const getTotalConfirmedPasses = (extraMembers = []) => {
-    const merged = [...getConfirmedMembers()];
-    const seen = new Set(merged.map((member) => member.id));
+  const hasPendingMembers = () => getPendingMembers().length > 0;
 
-    extraMembers.forEach((member) => {
-      if (!member || seen.has(member.id)) return;
-      seen.add(member.id);
-      merged.push(member);
-    });
-
-    return merged.reduce((total, member) => total + member.passes, 0);
-  };
-
-  const hasPendingMembers = () => hasMembers() && getPendingMembers().length > 0;
-
-  const getSelectedMembers = () => {
-    if (!hasMembers()) return [];
-
-    return Array.from(membersList.querySelectorAll('input[type="checkbox"]:checked:not(:disabled)'))
-      .map((input) => guest.members.find((member) => member.id === input.value))
-      .filter(Boolean);
-  };
-
-  const renderMembers = (selectedMemberIds = []) => {
-    membersList.innerHTML = "";
-    if (!hasMembers()) return;
-
+  const getMemberStatus = (member) => {
     const confirmedIds = getConfirmedMemberIds();
     const declinedIds = getDeclinedMemberIds();
 
-    guest.members.forEach((member) => {
-      const label = document.createElement("label");
-      label.className = "rsvp-member-item";
+    if (confirmedIds.has(member.id)) {
+      return { kind: "confirmed", text: "Asistencia confirmada" };
+    }
 
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.value = member.id;
-      const isConfirmed = confirmedIds.has(member.id);
-      const isDeclined = declinedIds.has(member.id);
-      input.checked = isConfirmed || selectedMemberIds.includes(member.id);
-      input.disabled = isConfirmed || isDeclined;
+    if (declinedIds.has(member.id)) {
+      return { kind: "declined", text: "No asistira" };
+    }
+
+    if (isRsvpClosed()) {
+      return { kind: "pending", text: "No indico su confirmacion" };
+    }
+
+    return { kind: "open", text: "" };
+  };
+
+  const renderMembers = () => {
+    membersList.innerHTML = "";
+
+    getDisplayMembers().forEach((member) => {
+      const item = document.createElement("div");
+      item.className = "rsvp-member-item";
+      item.dataset.memberId = member.id;
 
       const text = document.createElement("div");
+      text.className = "rsvp-member-copy";
       const strong = document.createElement("strong");
       const span = document.createElement("span");
+      const status = getMemberStatus(member);
 
       strong.textContent = member.name;
-      span.textContent = isConfirmed
-        ? `Asistencia confirmada · ${member.passes} ${member.passes === 1 ? "pase asignado" : "pases asignados"}`
-        : isDeclined
-        ? `No podrá asistir · ${member.passes} ${member.passes === 1 ? "pase asignado" : "pases asignados"}`
-        : `${member.passes} ${member.passes === 1 ? "pase asignado" : "pases asignados"}`;
+      span.textContent = `${member.passes} ${member.passes === 1 ? "pase asignado" : "pases asignados"}`;
 
       text.appendChild(strong);
       text.appendChild(span);
-      label.appendChild(input);
-      label.appendChild(text);
-      membersList.appendChild(label);
+
+      const side = document.createElement("div");
+
+      if (status.kind === "open") {
+        const actions = document.createElement("div");
+        actions.className = "rsvp-member-actions";
+
+        const btnYes = document.createElement("button");
+        btnYes.type = "button";
+        btnYes.className = "rsvp-btn";
+        btnYes.dataset.memberId = member.id;
+        btnYes.dataset.answer = "yes";
+        btnYes.textContent = "Sí, asistiré";
+
+        const btnNo = document.createElement("button");
+        btnNo.type = "button";
+        btnNo.className = "rsvp-btn";
+        btnNo.dataset.memberId = member.id;
+        btnNo.dataset.answer = "no";
+        btnNo.textContent = "No podré asistir";
+
+        if (savingMemberId) {
+          const disableButtons = savingMemberId !== member.id;
+          btnYes.disabled = disableButtons || savingMemberId === member.id;
+          btnNo.disabled = disableButtons || savingMemberId === member.id;
+        }
+
+        actions.append(btnYes, btnNo);
+        side.appendChild(actions);
+      } else {
+        const statusEl = document.createElement("span");
+        statusEl.className = `rsvp-member-status is-${status.kind}`;
+        statusEl.textContent = status.text;
+        side.appendChild(statusEl);
+      }
+
+      item.append(text, side);
+      membersList.appendChild(item);
     });
   };
 
-  const syncVisibleFields = (preferredGuestCount) => {
-    if (answer !== "yes" && answer !== "no") {
-      if (confirmedState && hasMembers() && hasPendingMembers()) {
-        membersWrap.style.display = "block";
-        return;
-      }
-
-      if (hasMembers()) {
-        membersWrap.style.display = "block";
-        return;
-      }
-
-      membersWrap.style.display = "none";
-      return;
-    }
-
-    if (!hasMembers()) {
-      membersWrap.style.display = "none";
-      return;
-    }
-
+  const syncVisibleFields = () => {
     membersWrap.style.display = "block";
-
-    if (confirmedState && !hasPendingMembers()) {
-      membersWrap.style.display = "none";
-    }
   };
 
-  const renderGuestFields = (selectedMemberIds = [], preferredGuestCount) => {
+  const renderGuestFields = () => {
     console.log("[RSVP] Renderizando invitado", guest);
     inputName.value = guest.name;
     inputName.disabled = true;
-    intro.textContent = RSVP_OPEN_MESSAGE;
-    renderMembers(selectedMemberIds);
-    syncVisibleFields(preferredGuestCount);
-  };
-
-  const setActive = (type) => {
-    btnYes.classList.toggle("is-active", type === "yes");
-    btnNo.classList.toggle("is-active", type === "no");
+    renderMembers();
+    syncVisibleFields();
   };
 
   const setDisabledState = (disabled) => {
-    btnYes.disabled = disabled;
-    btnNo.disabled = disabled;
-    btnConfirm.disabled = disabled;
     inputName.disabled = disabled;
-    membersList.querySelectorAll('input[type="checkbox"]').forEach((input) => {
-      input.disabled = disabled;
+    membersList.querySelectorAll("button").forEach((button) => {
+      button.disabled = disabled;
     });
   };
 
@@ -279,21 +263,37 @@ document.addEventListener("DOMContentLoaded", () => {
     return merged;
   };
 
-  const buildResolvedState = (state) => ({
-    ...state,
-    memberSelections: mergeMemberSelections([], state.memberSelections),
-    declinedSelections: mergeMemberSelections([], state.declinedSelections)
-  });
+  const buildResolvedState = (state) => {
+    const memberSelections = mergeMemberSelections([], state.memberSelections);
+    const declinedSelections = mergeMemberSelections([], state.declinedSelections);
+
+    if (memberSelections.length === 0 && declinedSelections.length === 0 && (state.answer === "yes" || state.answer === "no")) {
+      const fallbackMembers = getDisplayMembers();
+      if (state.answer === "yes") {
+        return {
+          ...state,
+          memberSelections: fallbackMembers,
+          declinedSelections: []
+        };
+      }
+
+      return {
+        ...state,
+        memberSelections: [],
+        declinedSelections: fallbackMembers
+      };
+    }
+
+    return {
+      ...state,
+      memberSelections,
+      declinedSelections
+    };
+  };
 
   const applyPartialConfirmationState = (state) => {
     confirmedState = buildResolvedState(state);
-    answer = null;
-    setActive(null);
-    btnNo.disabled = false;
     renderGuestFields();
-    btnConfirm.disabled = false;
-    if (actions) actions.style.display = "grid";
-    btnConfirm.style.display = "inline-flex";
     if (inlineBlock) inlineBlock.style.display = "grid";
     intro.textContent = "Tu confirmación sigue abierta para los integrantes pendientes.";
     msg.style.display = "none";
@@ -302,38 +302,22 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const paintConfirmed = (state) => {
-    confirmedState = state.answer === "yes" || Array.isArray(state.declinedSelections)
-      ? buildResolvedState(state)
-      : null;
-    answer = state.answer;
-    setActive(answer);
-
-    const selectedIds = Array.isArray(state.memberSelections)
-      ? state.memberSelections.map((member) => String(member.id || "")).filter(Boolean)
-      : [];
-
-    renderGuestFields(selectedIds, state.guests || 1);
+    confirmedState = buildResolvedState(state);
+    renderGuestFields();
     setDisabledState(true);
-    if (actions) actions.style.display = "none";
-    btnConfirm.style.display = "none";
-    membersWrap.style.display = "none";
-    if (inlineBlock) inlineBlock.style.display = "none";
+    if (inlineBlock) inlineBlock.style.display = "grid";
     intro.textContent = "Gracias por haber completado el formulario de asistencia";
     msg.style.display = "block";
     msg.className = "rsvp-msg ok";
     msg.textContent =
-      answer === "yes"
+      getConfirmedMembers().length > 0
         ? "Gracias por confirmar tu asistencia, te vemos pronto."
         : "Lamentamos que no puedas acompañarnos, te extrañaremos.";
   };
 
   const applyClosedState = () => {
-    answer = null;
-    setActive(null);
     intro.textContent = RSVP_CLOSED_MESSAGE;
-    membersWrap.style.display = "none";
-    btnConfirm.style.display = "none";
-    if (actions) actions.style.display = "none";
+    renderGuestFields();
     if (inlineBlock) inlineBlock.classList.add("is-closed");
     setDisabledState(true);
     msg.style.display = "none";
@@ -375,9 +359,9 @@ document.addEventListener("DOMContentLoaded", () => {
         localStorage.setItem(storageKey, JSON.stringify(remoteState));
         console.log("[RSVP] Confirmación remota encontrada", remoteState);
         if (
-          hasMembers()
+          getDisplayMembers().length > 0
           && (remoteState.memberSelections.length + remoteState.declinedSelections.length) > 0
-          && (remoteState.memberSelections.length + remoteState.declinedSelections.length) < guest.members.length
+          && (remoteState.memberSelections.length + remoteState.declinedSelections.length) < getDisplayMembers().length
         ) {
           applyPartialConfirmationState(remoteState);
           return true;
@@ -402,9 +386,9 @@ document.addEventListener("DOMContentLoaded", () => {
         if (savedState?.eventId === eventId && savedState?.guestId === guest.id) {
           console.log("[RSVP] Usando confirmación local fallback", savedState);
           if (
-            hasMembers()
+            getDisplayMembers().length > 0
             && ((savedState.memberSelections || []).length + (savedState.declinedSelections || []).length) > 0
-            && ((savedState.memberSelections || []).length + (savedState.declinedSelections || []).length) < guest.members.length
+            && ((savedState.memberSelections || []).length + (savedState.declinedSelections || []).length) < getDisplayMembers().length
           ) {
             applyPartialConfirmationState(savedState);
             return true;
@@ -426,93 +410,55 @@ document.addEventListener("DOMContentLoaded", () => {
 
   window.addEventListener("guest:updated", () => {
     guest = getGuest();
-    answer = null;
     confirmedState = null;
-    setActive(null);
-    btnNo.disabled = false;
+    savingMemberId = null;
+    if (inlineBlock) inlineBlock.classList.remove("is-closed");
+    msg.style.display = "none";
+    msg.className = "rsvp-msg";
+    msg.textContent = "";
+    intro.textContent = RSVP_OPEN_MESSAGE;
     renderGuestFields();
   });
 
-  membersList.addEventListener("change", () => {
-    if (answer !== "yes" && answer !== "no") return;
-    syncVisibleFields();
-  });
+  membersList.addEventListener("click", async (event) => {
+    const button = event.target.closest("button[data-member-id][data-answer]");
+    if (!button) return;
 
-  btnYes.addEventListener("click", () => {
-    console.log("[RSVP] Click Sí");
-    answer = "yes";
-    setActive("yes");
-    syncVisibleFields();
-  });
+    const submittedAnswer = button.dataset.answer;
+    const memberId = String(button.dataset.memberId || "");
+    const selectedMember = getDisplayMembers().find((member) => member.id === memberId);
 
-  btnNo.addEventListener("click", () => {
-    console.log("[RSVP] Click No");
-    answer = "no";
-    setActive("no");
-    syncVisibleFields();
-  });
+    if (!selectedMember || savingMemberId) return;
 
-  btnConfirm.addEventListener("click", async () => {
-    console.log("[RSVP] Click confirmar", { answer, guest });
-    const submittedAnswer = answer;
+    console.log("[RSVP] Click confirmar integrante", { submittedAnswer, memberId, guest });
 
     if (isRsvpClosed()) {
       applyClosedState();
       return;
     }
 
-    if (!submittedAnswer) {
-      msg.style.display = "block";
-      msg.className = "rsvp-msg error";
-      msg.textContent = "Por favor selecciona una opción para continuar.";
+    if (getConfirmedMemberIds().has(memberId) || getDeclinedMemberIds().has(memberId)) {
       return;
     }
 
-    const selectedMembers = submittedAnswer === "yes" ? getSelectedMembers() : [];
-    const selectedPendingMembers = submittedAnswer === "no" && confirmedState ? getSelectedMembers() : [];
-    if (submittedAnswer === "yes" && hasMembers() && selectedMembers.length === 0) {
-      msg.style.display = "block";
-      msg.className = "rsvp-msg error";
-      msg.textContent = confirmedState
-        ? "Selecciona al menos un integrante pendiente para continuar."
-        : "Selecciona al menos un integrante para continuar.";
-      return;
-    }
-
-    if (submittedAnswer === "no" && confirmedState && selectedPendingMembers.length === 0) {
-      msg.style.display = "block";
-      msg.className = "rsvp-msg error";
-      msg.textContent = "Selecciona al menos un integrante pendiente para marcar que no asistira.";
-      return;
-    }
-
-    btnConfirm.disabled = true;
-    btnYes.disabled = true;
-    btnNo.disabled = true;
+    savingMemberId = memberId;
+    renderMembers();
 
     const mergedMembers = submittedAnswer === "yes"
-      ? mergeMemberSelections(getConfirmedMembers(), selectedMembers)
+      ? mergeMemberSelections(getConfirmedMembers(), [selectedMember])
       : getConfirmedMembers();
-    const mergedDeclinedMembers = submittedAnswer === "no" && confirmedState
-      ? mergeMemberSelections(getDeclinedMembers(), selectedPendingMembers)
-      : submittedAnswer === "no" && hasMembers()
-      ? mergeMemberSelections([], guest.members)
+    const mergedDeclinedMembers = submittedAnswer === "no"
+      ? mergeMemberSelections(getDeclinedMembers(), [selectedMember])
       : getDeclinedMembers();
-    const totalConfirmedGuests = (submittedAnswer === "yes" || getConfirmedMembers().length > 0)
-      ? hasMembers()
-        ? mergedMembers.reduce((total, member) => total + member.passes, 0)
-        : Math.max(1, Number(guest.passes || 1))
-      : 0;
+    const totalConfirmedGuests = mergedMembers.reduce((total, member) => total + member.passes, 0);
     const resolvedMemberIds = new Set([
       ...mergedMembers.map((member) => member.id),
       ...mergedDeclinedMembers.map((member) => member.id)
     ]);
-    const hasOpenPendingMembers = hasMembers() && guest.members.some((member) => !resolvedMemberIds.has(member.id));
-    const finalAnswer = submittedAnswer === "yes"
+    const hasOpenPendingMembers = getDisplayMembers().some((member) => !resolvedMemberIds.has(member.id));
+    const finalAnswer = hasOpenPendingMembers
       ? "yes"
-      : hasMembers()
-      ? (mergedMembers.length > 0 ? "yes" : (hasOpenPendingMembers ? "yes" : "no"))
-      : "no";
+      : (mergedMembers.length > 0 ? "yes" : "no");
 
     const state = {
       eventId,
@@ -561,9 +507,8 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     } catch (error) {
       console.error("[RSVP] Error al guardar confirmación", error);
-      btnConfirm.disabled = false;
-      btnYes.disabled = false;
-      btnNo.disabled = false;
+      savingMemberId = null;
+      renderMembers();
       msg.style.display = "block";
       msg.className = "rsvp-msg error";
       msg.textContent = error?.code === "RSVP_ALREADY_CONFIRMED"
@@ -577,8 +522,9 @@ document.addEventListener("DOMContentLoaded", () => {
       ? "Gracias por confirmar tu asistencia, te vemos pronto"
       : "Lamentamos que no puedas acompanarnos, te extranaremos";
 
+    savingMemberId = null;
     showResult(popupText);
-    if (hasMembers() && hasOpenPendingMembers) {
+    if (hasOpenPendingMembers) {
       applyPartialConfirmationState(state);
       return;
     }

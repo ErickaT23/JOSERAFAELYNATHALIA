@@ -558,6 +558,23 @@
         return "pendiente";
     }
 
+    function normalizeGuestMembers(rawMembers) {
+        if (!Array.isArray(rawMembers)) return [];
+
+        return rawMembers
+            .map(function (member, index) {
+                const nombre = String(member && (member.nombre || member.name) || "").trim();
+                if (!nombre) return null;
+
+                return {
+                    id: String(member && (member.id || member.guestId || ("member-" + (index + 1))) || ("member-" + (index + 1))),
+                    nombre: nombre,
+                    pasesAsignados: Math.max(1, Number(member && (member.pasesAsignados || member.pases || member.passes) || 1))
+                };
+            })
+            .filter(Boolean);
+    }
+
     function normalizeConfirmation(record) {
         const response = normalizeResponse(record && record.respuesta);
         return {
@@ -568,6 +585,8 @@
             cantidadConfirmada: response === "si"
                 ? Math.max(0, Number(record && record.cantidadConfirmada) || 0)
                 : 0,
+            integrantesConfirmados: normalizeGuestMembers(record && record.integrantesConfirmados),
+            integrantesDeclinados: normalizeGuestMembers(record && record.integrantesDeclinados),
             fechaConfirmacion: Number(record && record.fechaConfirmacion) || null
         };
     }
@@ -629,6 +648,7 @@
                 id,
                 nombre: String(invitado.nombre || "").trim() || "Invitado",
                 pases: Math.max(0, Number(invitado.pases) || 0),
+                integrantes: normalizeGuestMembers(invitado.integrantes || invitado.members),
                 activo: typeof invitado.activo === "undefined" ? true : Boolean(invitado.activo)
             });
         });
@@ -650,9 +670,94 @@
                 id: guest.id || id,
                 nombre: guest.nombre || guest.name,
                 pases: guest.pases || guest.passes,
+                integrantes: guest.integrantes || guest.members,
                 activo: typeof guest.activo === "undefined" ? true : Boolean(guest.activo)
             };
         }));
+    }
+
+    function formatMemberList(members) {
+        if (!Array.isArray(members) || members.length === 0) return "--";
+
+        return members
+            .map(function (member) {
+                const pases = Math.max(1, Number(member && member.pasesAsignados) || 1);
+                return String(member && member.nombre || "") + " (" + pases + " " + (pases === 1 ? "pase" : "pases") + ")";
+            })
+            .filter(Boolean)
+            .join(", ");
+    }
+
+    function getRowMembers(row) {
+        const configuredMembers = Array.isArray(row && row.integrantes) ? row.integrantes : [];
+        if (configuredMembers.length > 0) return configuredMembers;
+
+        const nombre = String(row && row.nombre || "").trim();
+        if (!nombre) return [];
+
+        return [{
+            id: normalizeGuestId(row && row.id),
+            nombre: nombre,
+            pasesAsignados: Math.max(1, Number(row && row.pasesAsignados) || 1)
+        }];
+    }
+
+    function countMemberPasses(members) {
+        if (!Array.isArray(members)) return 0;
+
+        return members.reduce(function (acc, member) {
+            return acc + Math.max(1, Number(member && member.pasesAsignados) || 1);
+        }, 0);
+    }
+
+    function getConfirmedPasses(row) {
+        const count = countMemberPasses(row && row.integrantesConfirmados);
+        if (count > 0) return count;
+        if (row && row.respuesta === "si") return Math.max(0, Number(row.cantidadConfirmada) || 0);
+        return 0;
+    }
+
+    function getDeclinedPasses(row) {
+        const count = countMemberPasses(row && row.integrantesDeclinados);
+        if (count > 0) return count;
+        if (row && row.respuesta === "no") return Math.max(0, Number(row.pasesAsignados) || 0);
+        return 0;
+    }
+
+    function getPendingMembers(row) {
+        const members = getRowMembers(row);
+        if (members.length === 0) return [];
+
+        const resolvedIds = new Set(
+            ([])
+                .concat(Array.isArray(row && row.integrantesConfirmados) ? row.integrantesConfirmados : [])
+                .concat(Array.isArray(row && row.integrantesDeclinados) ? row.integrantesDeclinados : [])
+                .map(function (member) {
+                    return String(member && member.id || member && member.nombre || "").trim();
+                })
+                .filter(Boolean)
+        );
+
+        return members.filter(function (member) {
+            return !resolvedIds.has(String(member && member.id || member && member.nombre || "").trim());
+        });
+    }
+
+    function getPendingPasses(row) {
+        const assigned = Math.max(0, Number(row && row.pasesAsignados) || 0);
+        return Math.max(0, assigned - getConfirmedPasses(row) - getDeclinedPasses(row));
+    }
+
+    function getRowDisplayStatus(row) {
+        const hasConfirmed = getConfirmedPasses(row) > 0;
+        const hasDeclined = getDeclinedPasses(row) > 0;
+        const hasPending = getPendingPasses(row) > 0;
+        const activeStates = [hasConfirmed, hasDeclined, hasPending].filter(Boolean).length;
+
+        if (activeStates > 1) return "parcial";
+        if (hasConfirmed) return "si";
+        if (hasDeclined) return "no";
+        return "pendiente";
     }
 
     function mergeInvitadosMaps(baseMap, overrideMap) {
@@ -691,6 +796,7 @@
                     id,
                     nombre: guest.nombre,
                     pasesAsignados: guest.pases,
+                    integrantes: guest.integrantes,
                     respuesta: "pendiente",
                     cantidadConfirmada: 0,
                     fechaConfirmacion: null,
@@ -705,6 +811,7 @@
                 ...confirmation,
                 nombre: guest.nombre || confirmation.nombre,
                 pasesAsignados: confirmation.pasesAsignados || guest.pases,
+                integrantes: guest.integrantes,
                 activo: guest.activo,
                 canEdit: guest.activo !== false,
                 canReactivate: guest.activo === false
@@ -734,12 +841,10 @@
     function calculateMetrics(rows) {
         const activeRows = rows.filter(function (row) { return row.activo !== false; });
         const totalInvitados = activeRows.length;
-        const confirmadosSi = activeRows.filter(function (row) { return row.respuesta === "si"; }).length;
-        const confirmadosNo = activeRows.filter(function (row) { return row.respuesta === "no"; }).length;
-        const pendientes = totalInvitados - confirmadosSi - confirmadosNo;
-        const personasConfirmadas = activeRows
-            .filter(function (row) { return row.respuesta === "si"; })
-            .reduce(function (acc, row) { return acc + (Number(row.cantidadConfirmada) || 0); }, 0);
+        const confirmadosSi = activeRows.filter(function (row) { return getRowDisplayStatus(row) === "si"; }).length;
+        const confirmadosNo = activeRows.filter(function (row) { return getRowDisplayStatus(row) === "no"; }).length;
+        const pendientes = activeRows.filter(function (row) { return getRowDisplayStatus(row) === "pendiente" || getRowDisplayStatus(row) === "parcial"; }).length;
+        const personasConfirmadas = activeRows.reduce(function (acc, row) { return acc + getConfirmedPasses(row); }, 0);
 
         return {
             totalInvitados,
@@ -805,6 +910,7 @@
     function labelResponse(response) {
         if (response === "si") return "SI";
         if (response === "no") return "NO";
+        if (response === "parcial") return "PARCIAL";
         return "Pendiente";
     }
 
@@ -814,6 +920,9 @@
         }
         if (response === "no") {
             return { text: "No asistira", className: "status-badge status-badge--no" };
+        }
+        if (response === "parcial") {
+            return { text: "Parcial", className: "status-badge status-badge--parcial" };
         }
         return { text: "Pendiente", className: "status-badge status-badge--pending" };
     }
@@ -989,6 +1098,36 @@
                 nameMain.textContent = row.nombre || "--";
                 tdNombre.appendChild(nameMain);
 
+                const allMembers = getRowMembers(row);
+                if (allMembers.length > 0) {
+                    const membersMeta = document.createElement("div");
+                    membersMeta.className = "guest-members-meta";
+                    membersMeta.textContent = "Integrantes: " + formatMemberList(allMembers);
+                    tdNombre.appendChild(membersMeta);
+                }
+
+                if (Array.isArray(row.integrantesConfirmados) && row.integrantesConfirmados.length > 0) {
+                    const confirmedMeta = document.createElement("div");
+                    confirmedMeta.className = "guest-members-meta";
+                    confirmedMeta.textContent = "Asistencia confirmada: " + formatMemberList(row.integrantesConfirmados);
+                    tdNombre.appendChild(confirmedMeta);
+                }
+
+                if (Array.isArray(row.integrantesDeclinados) && row.integrantesDeclinados.length > 0) {
+                    const declinedMeta = document.createElement("div");
+                    declinedMeta.className = "guest-members-meta";
+                    declinedMeta.textContent = "No asistira: " + formatMemberList(row.integrantesDeclinados);
+                    tdNombre.appendChild(declinedMeta);
+                }
+
+                const pendingMembers = getPendingMembers(row);
+                if (pendingMembers.length > 0) {
+                    const pendingMeta = document.createElement("div");
+                    pendingMeta.className = "guest-members-meta";
+                    pendingMeta.textContent = "Pendientes: " + formatMemberList(pendingMembers);
+                    tdNombre.appendChild(pendingMeta);
+                }
+
                 if (row.activo === false) {
                     const inactiveBadge = document.createElement("span");
                     inactiveBadge.className = "guest-inactive-badge";
@@ -1017,7 +1156,8 @@
 
             const tdEstado = document.createElement("td");
             tdEstado.className = "status-col";
-            const badgeMeta = getStatusBadgeMeta(row.respuesta);
+            const displayStatus = getRowDisplayStatus(row);
+            const badgeMeta = getStatusBadgeMeta(displayStatus);
             const statusBadge = document.createElement("span");
             statusBadge.className = badgeMeta.className;
             statusBadge.textContent = badgeMeta.text;
@@ -1025,9 +1165,9 @@
 
             const tdConfirmados = document.createElement("td");
             tdConfirmados.className = "confirmed-col";
-            tdConfirmados.textContent = row.respuesta === "si"
-                ? String(Number(row.cantidadConfirmada) || 0)
-                : (row.respuesta === "no" ? "0" : "--");
+            tdConfirmados.textContent = displayStatus === "pendiente"
+                ? "--"
+                : String(getConfirmedPasses(row));
 
             const tdFecha = document.createElement("td");
             tdFecha.className = "date-cell date-col";
@@ -1088,7 +1228,8 @@
 
             const stateWrap = document.createElement("div");
             stateWrap.className = "guest-card-state";
-            const badgeMeta = getStatusBadgeMeta(row.respuesta);
+            const displayStatus = getRowDisplayStatus(row);
+            const badgeMeta = getStatusBadgeMeta(displayStatus);
             const badge = document.createElement("span");
             badge.className = badgeMeta.className;
             badge.textContent = badgeMeta.text;
@@ -1135,9 +1276,9 @@
             const confirmedLabel = document.createElement("span");
             confirmedLabel.textContent = "Pases confirmados";
             const confirmedStrong = document.createElement("strong");
-            confirmedStrong.textContent = row.respuesta === "si"
-                ? String(Number(row.cantidadConfirmada) || 0)
-                : (row.respuesta === "no" ? "0" : "--");
+            confirmedStrong.textContent = displayStatus === "pendiente"
+                ? "--"
+                : String(getConfirmedPasses(row));
             lineConfirmed.append(confirmedLabel, confirmedStrong);
 
             const lineDate = document.createElement("div");
@@ -1156,7 +1297,55 @@
             timeStrong.textContent = dateParts.time || "--";
             lineTime.append(timeLabel, timeStrong);
 
-            meta.append(linePases, lineConfirmed, lineDate, lineTime);
+            const allMembers = getRowMembers(row);
+            const memberLines = [];
+
+            if (allMembers.length > 0) {
+                const lineMembers = document.createElement("div");
+                lineMembers.className = "guest-card-line guest-card-line--stacked";
+                const membersLabel = document.createElement("span");
+                membersLabel.textContent = "Integrantes";
+                const membersStrong = document.createElement("strong");
+                membersStrong.textContent = formatMemberList(allMembers);
+                lineMembers.append(membersLabel, membersStrong);
+                memberLines.push(lineMembers);
+            }
+
+            if (Array.isArray(row.integrantesConfirmados) && row.integrantesConfirmados.length > 0) {
+                const lineMembersConfirmed = document.createElement("div");
+                lineMembersConfirmed.className = "guest-card-line guest-card-line--stacked";
+                const membersConfirmedLabel = document.createElement("span");
+                membersConfirmedLabel.textContent = "Asistencia confirmada";
+                const membersConfirmedStrong = document.createElement("strong");
+                membersConfirmedStrong.textContent = formatMemberList(row.integrantesConfirmados);
+                lineMembersConfirmed.append(membersConfirmedLabel, membersConfirmedStrong);
+                memberLines.push(lineMembersConfirmed);
+            }
+
+            if (Array.isArray(row.integrantesDeclinados) && row.integrantesDeclinados.length > 0) {
+                const lineMembersDeclined = document.createElement("div");
+                lineMembersDeclined.className = "guest-card-line guest-card-line--stacked";
+                const membersDeclinedLabel = document.createElement("span");
+                membersDeclinedLabel.textContent = "No asistira";
+                const membersDeclinedStrong = document.createElement("strong");
+                membersDeclinedStrong.textContent = formatMemberList(row.integrantesDeclinados);
+                lineMembersDeclined.append(membersDeclinedLabel, membersDeclinedStrong);
+                memberLines.push(lineMembersDeclined);
+            }
+
+            const pendingMembers = getPendingMembers(row);
+            if (pendingMembers.length > 0) {
+                const lineMembersPending = document.createElement("div");
+                lineMembersPending.className = "guest-card-line guest-card-line--stacked";
+                const membersPendingLabel = document.createElement("span");
+                membersPendingLabel.textContent = "Pendientes";
+                const membersPendingStrong = document.createElement("strong");
+                membersPendingStrong.textContent = formatMemberList(pendingMembers);
+                lineMembersPending.append(membersPendingLabel, membersPendingStrong);
+                memberLines.push(lineMembersPending);
+            }
+
+            meta.append(linePases, lineConfirmed, lineDate, lineTime, ...memberLines);
 
             const actions = document.createElement("div");
             actions.className = "guest-card-actions";
@@ -1207,10 +1396,10 @@
             lines.push([
                 row.nombre || "",
                 String(Number(row.pasesAsignados) || 0),
-                labelResponse(row.respuesta),
-                row.respuesta === "si"
-                    ? String(Number(row.cantidadConfirmada) || 0)
-                    : (row.respuesta === "no" ? "0" : ""),
+                labelResponse(getRowDisplayStatus(row)),
+                getRowDisplayStatus(row) === "pendiente"
+                    ? ""
+                    : String(getConfirmedPasses(row)),
                 formatDate(row.fechaConfirmacion)
             ].map(escapeCsvCell).join(","));
         });

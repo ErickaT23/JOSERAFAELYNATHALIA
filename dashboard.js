@@ -139,6 +139,20 @@ function formatConfirmedMembers(members) {
         .join(", ");
 }
 
+function getRowMembers(row) {
+    const configuredMembers = Array.isArray(row && row.integrantes) ? row.integrantes : [];
+    if (configuredMembers.length > 0) return configuredMembers;
+
+    const fallbackName = String(row && row.nombre || "").trim();
+    if (!fallbackName) return [];
+
+    return [{
+        id: normalizeGuestId(row && row.id),
+        nombre: fallbackName,
+        pasesAsignados: Math.max(1, Number(row && row.pasesAsignados) || 1)
+    }];
+}
+
 function countMemberPasses(members) {
     if (!Array.isArray(members)) return 0;
     return members.reduce((acc, member) => acc + Math.max(1, Number(member && member.pasesAsignados) || 1), 0);
@@ -166,7 +180,7 @@ function getPendingPasses(row) {
 }
 
 function getPendingMembers(row) {
-    const guestMembers = Array.isArray(row && row.integrantes) ? row.integrantes : [];
+    const guestMembers = getRowMembers(row);
     if (guestMembers.length === 0) return [];
 
     const resolvedIds = new Set([
@@ -349,7 +363,7 @@ function buildCsvContent(rows) {
             row.nombre || "--",
             String(Number(row.pasesAsignados) || 0),
             toResponseLabel(responseValue),
-            responseValue === "pendiente" ? "--" : String(Number(row.cantidadConfirmada) || 0),
+            responseValue === "pendiente" ? "--" : String(getConfirmedPasses(row)),
             responseValue === "pendiente" ? "--" : formatConfirmationDate(row.fechaConfirmacion)
         ];
         lines.push(line.map(escapeCsvCell).join(","));
@@ -380,9 +394,7 @@ function setSummaryValues(rows) {
     const totalPending = rows.reduce((acc, row) => {
         return acc + getPendingPasses(row);
     }, 0);
-    const totalConfirmedPeople = rows
-        .filter((row) => row.respuesta === "si")
-        .reduce((acc, row) => acc + (Number(row.cantidadConfirmada) || 0), 0);
+    const totalConfirmedPeople = rows.reduce((acc, row) => acc + getConfirmedPasses(row), 0);
 
     const totalGuestsEl = document.getElementById("summary-total-guests");
     const totalYesEl = document.getElementById("summary-yes");
@@ -411,15 +423,10 @@ function renderDesktopTable(rows, emptyMessage, activeFilter) {
 
     rows.forEach((row) => {
         const tr = document.createElement("tr");
-        const visibleConfirmedMembers = activeFilter === "no" || activeFilter === "pendiente"
-            ? []
-            : row.integrantesConfirmados;
-        const visibleDeclinedMembers = activeFilter === "si" || activeFilter === "pendiente"
-            ? []
-            : row.integrantesDeclinados;
-        const visiblePendingMembers = activeFilter === "todos" || activeFilter === "pendiente"
-            ? getPendingMembers(row)
-            : [];
+        const visibleConfirmedMembers = row.integrantesConfirmados;
+        const visibleDeclinedMembers = row.integrantesDeclinados;
+        const visiblePendingMembers = getPendingMembers(row);
+        const allMembers = getRowMembers(row);
 
         const idTd = document.createElement("td");
         idTd.className = "id-cell";
@@ -431,21 +438,28 @@ function renderDesktopTable(rows, emptyMessage, activeFilter) {
         nameMain.textContent = row.nombre || "--";
         nameTd.appendChild(nameMain);
 
-        if ((activeFilter === "todos" || activeFilter === "si") && Array.isArray(visibleConfirmedMembers) && visibleConfirmedMembers.length > 0) {
+        if (allMembers.length > 0) {
+            const assignedMeta = document.createElement("span");
+            assignedMeta.className = "name-cell-meta";
+            assignedMeta.textContent = "Integrantes: " + formatConfirmedMembers(allMembers);
+            nameTd.appendChild(assignedMeta);
+        }
+
+        if (Array.isArray(visibleConfirmedMembers) && visibleConfirmedMembers.length > 0) {
             const nameMeta = document.createElement("span");
             nameMeta.className = "name-cell-meta";
             nameMeta.textContent = "Asistencia confirmada: " + formatConfirmedMembers(visibleConfirmedMembers);
             nameTd.appendChild(nameMeta);
         }
 
-        if ((activeFilter === "todos" || activeFilter === "no") && Array.isArray(visibleDeclinedMembers) && visibleDeclinedMembers.length > 0) {
+        if (Array.isArray(visibleDeclinedMembers) && visibleDeclinedMembers.length > 0) {
             const declinedMeta = document.createElement("span");
             declinedMeta.className = "name-cell-meta";
             declinedMeta.textContent = "No podrán asistir: " + formatConfirmedMembers(visibleDeclinedMembers);
             nameTd.appendChild(declinedMeta);
         }
 
-        if ((activeFilter === "todos" || activeFilter === "pendiente") && visiblePendingMembers.length > 0) {
+        if (visiblePendingMembers.length > 0) {
             const pendingMeta = document.createElement("span");
             pendingMeta.className = "name-cell-meta";
             pendingMeta.textContent = "Pendientes de Confirmar: " + formatConfirmedMembers(visiblePendingMembers);
@@ -465,7 +479,7 @@ function renderDesktopTable(rows, emptyMessage, activeFilter) {
         const confirmedTd = document.createElement("td");
         confirmedTd.textContent = responseValue === "pendiente"
             ? "--"
-            : String(Number(row.cantidadConfirmada) || 0);
+            : String(getConfirmedPasses(row));
 
         const dateTd = document.createElement("td");
         dateTd.className = "date-cell";
@@ -559,19 +573,25 @@ function renderMobileCards(rows, emptyMessage, activeFilter) {
         timeValue.textContent = dateParts.time;
         lineTime.append(timeLabel, timeValue);
 
-        const visibleConfirmedMembers = activeFilter === "no" || activeFilter === "pendiente"
-            ? []
-            : row.integrantesConfirmados;
-        const visibleDeclinedMembers = activeFilter === "si" || activeFilter === "pendiente"
-            ? []
-            : row.integrantesDeclinados;
-        const visiblePendingMembers = activeFilter === "todos" || activeFilter === "pendiente"
-            ? getPendingMembers(row)
-            : [];
+        const visibleConfirmedMembers = row.integrantesConfirmados;
+        const visibleDeclinedMembers = row.integrantesDeclinados;
+        const visiblePendingMembers = getPendingMembers(row);
+        const allMembers = getRowMembers(row);
 
         details.append(lineAssigned, lineConfirmed, lineDate, lineTime);
 
-        if ((activeFilter === "todos" || activeFilter === "si") && Array.isArray(visibleConfirmedMembers) && visibleConfirmedMembers.length > 0) {
+        if (allMembers.length > 0) {
+            const lineAllMembers = document.createElement("div");
+            lineAllMembers.className = "confirmation-card-line confirmation-card-line--stacked";
+            const allMembersLabel = document.createElement("span");
+            allMembersLabel.textContent = "Integrantes";
+            const allMembersValue = document.createElement("strong");
+            allMembersValue.textContent = formatConfirmedMembers(allMembers);
+            lineAllMembers.append(allMembersLabel, allMembersValue);
+            details.append(lineAllMembers);
+        }
+
+        if (Array.isArray(visibleConfirmedMembers) && visibleConfirmedMembers.length > 0) {
             const lineMembers = document.createElement("div");
             lineMembers.className = "confirmation-card-line confirmation-card-line--stacked";
             const membersLabel = document.createElement("span");
@@ -582,7 +602,7 @@ function renderMobileCards(rows, emptyMessage, activeFilter) {
             details.append(lineMembers);
         }
 
-        if ((activeFilter === "todos" || activeFilter === "no") && Array.isArray(visibleDeclinedMembers) && visibleDeclinedMembers.length > 0) {
+        if (Array.isArray(visibleDeclinedMembers) && visibleDeclinedMembers.length > 0) {
             const lineDeclined = document.createElement("div");
             lineDeclined.className = "confirmation-card-line confirmation-card-line--stacked";
             const declinedLabel = document.createElement("span");
@@ -593,7 +613,7 @@ function renderMobileCards(rows, emptyMessage, activeFilter) {
             details.append(lineDeclined);
         }
 
-        if ((activeFilter === "todos" || activeFilter === "pendiente") && visiblePendingMembers.length > 0) {
+        if (visiblePendingMembers.length > 0) {
             const linePending = document.createElement("div");
             linePending.className = "confirmation-card-line confirmation-card-line--stacked";
             const pendingLabel = document.createElement("span");
