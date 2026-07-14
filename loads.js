@@ -2,12 +2,13 @@ const guests = [
   {
     id: "1",
     name: "Familia Arana Girón",
-    passes: 4,
+    passes: 5,
     members: [
       { name: "Fernando Arana", passes: 1 },
       { name: "Lissette de Arana", passes: 1 },
       { name: "Nathalia Arana", passes: 1 },
-      { name: "Valeria Arana", passes: 1 }
+      { name: "Valeria Arana", passes: 1 },
+      { name: "Marta Poyon", passes: 1 }
     ]
   },
   {
@@ -226,10 +227,11 @@ const guests = [
   {
     id: "24",
     name: "Sra Rosa María Arana y Sra Marcela Prado",
-    passes: 2,
+    passes: 3,
     members: [
       { name: "Rosa María Arana", passes: 1 },
-      { name: "Marcela Prado", passes: 1 }
+      { name: "Marcela Prado", passes: 1 },
+      { name: "Fernando de Dios", passes: 1 }
     ]
   },
   {

@@ -295,7 +295,7 @@ document.addEventListener("DOMContentLoaded", () => {
     confirmedState = buildResolvedState(state);
     renderGuestFields();
     if (inlineBlock) inlineBlock.style.display = "grid";
-    intro.textContent = "Tu confirmación sigue abierta para los integrantes pendientes.";
+    intro.textContent = "Tu confirmación sigue abierta para los integrantes pendientes. No olvides que la fecha máxima es el 30 de septiembre.";
     msg.style.display = "none";
     msg.className = "rsvp-msg";
     msg.textContent = "";
