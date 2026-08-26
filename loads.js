@@ -577,6 +577,36 @@ const guests = [
       { name: "Evan Foster", passes: 1 },
       { name: "María Alejandra Morales", passes: 1 }
     ]
+  },
+  {
+    id: "65",
+    name: "Señor Edgar Reyes y Señora Vilmita de Reyes",
+    passes: 2,
+    members: [
+      { name: "Edgar Reyes", passes: 1 },
+      { name: "Vilmita de Reyes", passes: 1 }
+    ]
+  },
+  {
+    id: "66",
+    name: "Señor Enrique Beltranena y Señora María Eugenia Beltranena",
+    passes: 2,
+    members: [
+      { name: "Enrique Beltranena", passes: 1 },
+      { name: "María Eugenia Beltranena", passes: 1 }
+    ]
+  },
+  {
+    id: "67",
+    name: "Familia González Rodríguez",
+    passes: 5,
+    members: [
+      { name: "Oswaldo González Barragán", passes: 1 },
+      { name: "Oswaldo González Rodríguez", passes: 1 },
+      { name: "María José González Rodríguez", passes: 1 },
+      { name: "Pareja María José González Rodríguez", passes: 1 },
+      { name: "Pareja Oswaldo González Rodríguez", passes: 1 }
+    ]
   }
 ];
 
@@ -628,6 +658,46 @@ window.seedEventGuestsToFirebase = async function seedEventGuestsToFirebase() {
   const result = await rsvpDB.migrateLocalGuestsToFirebase(eventId, { force: true });
   console.log(`Invitados creados en Firebase: ${result.total || guests.length}`);
   return { ok: true, guests: result.total || guests.length };
+};
+
+window.syncMissingEventGuestsToFirebase = async function syncMissingEventGuestsToFirebase() {
+  const eventId = window.config?.event?.defaultEventId || "joserafaelynathalia2026";
+  const rsvpDB = await waitForRSVPDatabase();
+  if (!rsvpDB?.getInvitados || !rsvpDB?.createInvitado) {
+    console.warn("RSVPDatabase no soporta sincronización incremental de invitados.");
+    return { ok: false, created: 0, missingIds: [] };
+  }
+
+  const remoteGuests = await rsvpDB.getInvitados(eventId);
+  const remoteIds = new Set(
+    (Array.isArray(remoteGuests) ? remoteGuests : []).map((guest) => String(guest?.id || guest?._key || "").trim()).filter(Boolean)
+  );
+
+  const missingGuests = guests.filter((guest) => !remoteIds.has(String(guest.id)));
+  if (missingGuests.length === 0) {
+    return { ok: true, created: 0, missingIds: [] };
+  }
+
+  await Promise.all(
+    missingGuests.map((guest) => rsvpDB.createInvitado(eventId, {
+      id: String(guest.id),
+      nombre: String(guest.name || "").trim(),
+      pases: Math.max(1, Number(guest.passes) || 1),
+      integrantes: normalizeGuestMembers(guest.members).map((member) => ({
+        id: member.id,
+        nombre: member.name,
+        pases: member.passes
+      })),
+      activo: true
+    }))
+  );
+
+  console.log("[RSVP][GuestSync] Invitados faltantes creados en Firebase", missingGuests.map((guest) => guest.id));
+  return {
+    ok: true,
+    created: missingGuests.length,
+    missingIds: missingGuests.map((guest) => String(guest.id))
+  };
 };
 
 function getQueryParam(key) {
@@ -720,6 +790,7 @@ async function loadRemoteGuest(guestId) {
 
 document.addEventListener("DOMContentLoaded", () => {
   const guestId = getQueryParam("id");
+  const pageName = String(window.location.pathname || "").split("/").pop() || "";
   console.log("[RSVP][GuestLoad] DOM listo. Leyendo parámetro ?id=", {
     guestId,
     firebaseReady: Boolean(window.firebaseReady),
@@ -727,6 +798,11 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   if (getQueryParam("seedGuests") === "1") window.seedEventGuestsToFirebase();
+  if (pageName === "admin.html" || pageName === "dashboard.html") {
+    window.syncMissingEventGuestsToFirebase().catch((error) => {
+      console.warn("[RSVP][GuestSync] No se pudieron sincronizar invitados faltantes", error);
+    });
+  }
 
   if (!guestId) {
     setCurrentGuest(null);

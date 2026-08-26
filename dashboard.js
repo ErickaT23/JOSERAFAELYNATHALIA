@@ -74,6 +74,13 @@ function mapInvitadosToDirectory(invitados) {
     return directory;
 }
 
+function mergeGuestDirectories(baseDirectory, overrideDirectory) {
+    return {
+        ...(baseDirectory || {}),
+        ...(overrideDirectory || {})
+    };
+}
+
 function normalizeGuestId(value) {
     const safeValue = String(value || "").trim();
     return safeValue || "default";
@@ -664,7 +671,9 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function getEffectiveGuestDirectory() {
-        if (hasRemoteGuestSource) return remoteGuestDirectory;
+        if (hasRemoteGuestSource) {
+            return mergeGuestDirectories(fallbackGuestDirectory, remoteGuestDirectory);
+        }
         return fallbackGuestDirectory;
     }
 
