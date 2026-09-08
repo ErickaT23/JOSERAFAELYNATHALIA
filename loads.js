@@ -607,6 +607,32 @@ const guests = [
       { name: "Pareja María José González Rodríguez", passes: 1 },
       { name: "Pareja Oswaldo González Rodríguez", passes: 1 }
     ]
+  },
+  {
+    id: "68",
+    name: "José Corzo y Gabriela de Corzo",
+    passes: 2,
+    members: [
+      { name: "José Corzo", passes: 1 },
+      { name: "Gabriela de Corzo", passes: 1 }
+    ]
+  },
+  {
+    id: "69",
+    name: "Luis Humberto De la Vega y Rosa María de la Vega",
+    passes: 2,
+    members: [
+      { name: "Luis Humberto De la Vega", passes: 1 },
+      { name: "Rosa María de la Vega", passes: 1 }
+    ]
+  },
+  {
+    id: "70",
+    name: "Señora Alejandra Cordero",
+    passes: 1,
+    members: [
+      { name: "Alejandra Cordero", passes: 1 }
+    ]
   }
 ];
 
